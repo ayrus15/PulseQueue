@@ -71,10 +71,8 @@ Dependency versions are pinned in [`pyproject.toml`](pyproject.toml).
   used instead and is recommended until that's fixed locally — see
   [ADR 0000](docs/decisions/0000-acceptance-criteria.md) for details.
 - **Docker is still not installed on this development machine.**
-  PostgreSQL 18 was installed directly instead (see "Current
-  limitations"); Redis has not been, so the worker and API run with
-  Redis genuinely unreachable - which is by design survivable (ADR
-  0002), not untested. Install from
+  PostgreSQL 18 and Redis 8 were both installed directly instead (see
+  "Current limitations"). Install Docker from
   <https://docs.docker.com/get-docker/>, then confirm with:
 
   ```bash
@@ -200,16 +198,16 @@ they are measured.
 ## Current limitations
 
 - **Docker is still not installed** on this development machine.
-  PostgreSQL 18 was installed directly via Chocolatey instead (run by
-  the repository owner in an elevated shell, since this session can't
-  self-elevate) and is what the commands above and the test suite were
-  actually run against. `docker compose version` is the command to
-  confirm Docker once it's installed.
-- **Redis is not installed either.** The worker and API were both run
-  and tested with Redis genuinely unreachable; per ADR 0002 this is a
-  documented, tested degradation path (logged warnings, no crash, no
-  lost tasks - just no low-latency wake-up), not an unverified claim.
-  `redis-cli ping` is the command to confirm Redis once it's installed.
+  PostgreSQL 18 and Redis 8 were both installed directly instead (via
+  Chocolatey, run elevated by the repository owner since this session
+  can't self-elevate) and are what the commands above and the test
+  suite were actually run against. `docker compose version` is the
+  command to confirm Docker once it's installed.
+- Redis's best-effort degradation path (ADR 0002) was also verified for
+  real, not just claimed: the worker and API were run and tested with
+  Redis genuinely unreachable before it was installed (logged
+  warnings, no crash, no lost tasks), and the real notify/wait happy
+  path was then verified once it was.
 - `pytest tests/integration` **skips cleanly** (prints the exact setup
   command, doesn't report a false pass) if no database is reachable at
   `TEST_DATABASE_URL` - this is tested and confirmed working, not just
@@ -227,7 +225,7 @@ they are measured.
 |---|---|---|
 | 0 | Architecture, ADRs, repo/environment setup | Done |
 | 1 | API, domain model, PostgreSQL persistence, migrations, tests | Done |
-| 2 | Redis integration, worker execution, task claiming | Done — 109/109 tests pass locally (adds claiming/concurrency and worker end-to-end tests) against real PostgreSQL 18; Redis tested unreachable (not installed) |
+| 2 | Redis integration, worker execution, task claiming | Done — 111/111 tests pass against real PostgreSQL 18 and real Redis 8 (both the unreachable-Redis degradation path and the real notify/wait happy path verified) |
 | 3 | Idempotency, retries, leases, dead-letter handling, recovery | Not started |
 | 4 | Pagination, filtering, cancellation, API quality | Not started |
 | 5 | Comprehensive tests and GitHub Actions CI | Not started |

@@ -93,6 +93,17 @@ was run and passed - see README.md's "Running tests" section for the
 exact commands. Docker is still not installed; it remains required for
 Phase 2's Redis dependency.
 
+## Update (Phase 2): Redis installed
+
+Redis 8 was installed via Chocolatey (`choco install redis -y`), which
+on Windows installs the binaries but registers no Windows service, so
+it's started directly: `redis-server.exe --port 6379`. With it running,
+`tests/integration/test_redis_queue_live.py` verified the real
+notify/wait happy path (previously only the "Redis unreachable"
+degradation path had been exercised for real, before this install).
+Docker is still not installed, so this remains a direct install rather
+than the Compose-managed service the final design calls for.
+
 ## Repository location note
 
 This project's working directory (`C:\Users\VAMSI\NewProjects\PulseQueue`)
