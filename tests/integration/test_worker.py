@@ -194,3 +194,40 @@ async def testPermanentFailureGoesStraightToFailedNotDeadLetter(
     assert refreshed.status == TaskStatus.FAILED.value
     assert refreshed.attemptCount == 1
     assert refreshed.lastErrorCode == "ProcessFileError"
+
+
+async def testWorkerRecoversAndCompletesATaskAbandonedByADeadWorker(
+    engine: AsyncEngine, worker: Worker
+) -> None:
+    """Simulates a worker claiming a task and then dying: the live
+    `worker` fixture's recovery pass must requeue it, and then actually
+    claim and complete it like any other queued task.
+    """
+    sessionFactory = createSessionFactory(engine)
+    async with sessionFactory() as session:
+        task = await TaskRepository(session).createTask(
+            NewTaskInput(
+                taskType="generateReport",
+                payload={"reportName": "x", "periodDays": 1},
+                maxAttempts=4,
+                correlationId="corr-6",
+            )
+        )
+        # A negative lease is immediately expired - stands in for a worker
+        # that claimed the task and crashed before finishing.
+        await TaskRepository(session).claimNextTasks(workerId="dead-worker", leaseSeconds=-10)
+
+    recoveredIds = await worker.runOneRecoveryPass()
+    assert task.id in recoveredIds
+
+    async with sessionFactory() as session:
+        afterRecovery = await TaskRepository(session).getTaskById(task.id)
+    assert afterRecovery.status == TaskStatus.QUEUED.value
+
+    claimedSomething = await worker.claimAndProcessOne()
+    assert claimedSomething is True
+
+    async with sessionFactory() as session:
+        afterProcessing = await TaskRepository(session).getTaskById(task.id)
+    assert afterProcessing.status == TaskStatus.SUCCEEDED.value
+    assert afterProcessing.attemptCount == 2

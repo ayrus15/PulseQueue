@@ -10,6 +10,7 @@ why claiming is safe under concurrent workers.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import signal
 import socket
@@ -29,6 +30,7 @@ from pulsequeue.persistence.database import createEngine, createSessionFactory
 from pulsequeue.persistence.models import TaskAttemptRecord, TaskRecord
 from pulsequeue.persistence.repositories import TaskAttemptRepository, TaskRepository
 from pulsequeue.queueing.redisQueue import createRedisClient, waitForNotification
+from pulsequeue.recovery.leaseRecovery import recoverExpiredLeases
 from pulsequeue.workers.registry import HandlerFunc, buildHandlerRegistry, getHandler
 
 logger = logging.getLogger(__name__)
@@ -75,9 +77,32 @@ class Worker:
             extra={"worker_id": self._workerId, "concurrency": self._concurrency},
         )
         try:
-            await asyncio.gather(*(self._loop(slot) for slot in range(self._concurrency)))
+            await asyncio.gather(
+                self._recoveryLoop(),
+                *(self._loop(slot) for slot in range(self._concurrency)),
+            )
         finally:
             logger.info("Worker stopped", extra={"worker_id": self._workerId})
+
+    async def _recoveryLoop(self) -> None:
+        while not self._stopping.is_set():
+            await self.runOneRecoveryPass()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._stopping.wait(), timeout=self._pollIntervalSeconds)
+
+    async def runOneRecoveryPass(self) -> list[uuid.UUID]:
+        """Recover every currently-expired lease once; returns the
+        recovered task IDs. Public so tests can trigger a recovery pass
+        deterministically instead of running the open-ended loop.
+        """
+        async with self._sessionFactory() as session:
+            recovered = await recoverExpiredLeases(session, datetime.now(UTC))
+        if recovered:
+            logger.info(
+                "Lease recovery pass requeued tasks",
+                extra={"worker_id": self._workerId, "recovered_count": len(recovered)},
+            )
+        return recovered
 
     async def _loop(self, slot: int) -> None:
         while not self._stopping.is_set():

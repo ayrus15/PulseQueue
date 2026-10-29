@@ -180,6 +180,32 @@ class TaskRepository:
         await self._session.commit()
         return records
 
+    async def findExpiredLeaseTasks(self, now: datetime, batchSize: int = 50) -> list[TaskRecord]:
+        """Tasks stuck ``running`` past their lease - the worker that
+        claimed them is presumed dead (ADR 0003). ``FOR UPDATE SKIP LOCKED``
+        so concurrent recovery passes never double-process the same row.
+        """
+        statement = (
+            select(TaskRecord)
+            .where(TaskRecord.status == TaskStatus.RUNNING.value)
+            .where(TaskRecord.leaseExpiresAt < now)
+            .limit(batchSize)
+            .with_for_update(skip_locked=True)
+        )
+        return list((await self._session.execute(statement)).scalars().all())
+
+    async def applyLeaseExpired(self, task: TaskRecord, now: datetime) -> None:
+        """Return a task whose lease expired to ``queued``, immediately
+        eligible (no backoff - the task itself never failed, its worker
+        just vanished).
+        """
+        task.status = applyTransition(TaskStatus(task.status), TaskEvent.LEASE_EXPIRED)
+        task.leaseOwner = None
+        task.leaseExpiresAt = None
+        task.scheduledAt = now
+        task.updatedAt = now
+        await self._session.commit()
+
     async def recordSuccess(
         self, task: TaskRecord, result: dict[str, object], completedAt: datetime
     ) -> None:
@@ -272,3 +298,28 @@ class TaskAttemptRepository:
         attempt.errorMessage = errorMessage
         attempt.durationMs = int((endedAt - attempt.startedAt).total_seconds() * 1000)
         await self._session.commit()
+
+    async def closeOrphanedAttempt(
+        self, taskId: uuid.UUID, attemptNumber: int, endedAt: datetime
+    ) -> None:
+        """Close out the still-open attempt row for a task whose lease
+        expired - the worker that opened it never got to call
+        ``finishAttempt`` itself. A no-op if there isn't one (e.g. the
+        worker finished and committed just as the lease was being
+        recovered) - recovery never overwrites a real outcome.
+        """
+        attempt = await self._session.scalar(
+            select(TaskAttemptRecord).where(
+                TaskAttemptRecord.taskId == taskId,
+                TaskAttemptRecord.attemptNumber == attemptNumber,
+                TaskAttemptRecord.outcome.is_(None),
+            )
+        )
+        if attempt is None:
+            return
+        await self.finishAttempt(
+            attempt,
+            AttemptOutcome.LEASE_EXPIRED,
+            endedAt=endedAt,
+            errorMessage="Worker lease expired before the attempt finished",
+        )
