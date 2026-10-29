@@ -5,14 +5,14 @@ tasks over HTTP, PostgreSQL durably records them, and independent
 worker processes execute them concurrently with bounded retries,
 idempotent submission, and crash recovery.
 
-**Status: Phase 2 done — a real worker process claims tasks, runs the
-five demo handlers, and records attempt history; Redis gives it a
-low-latency wake-up, with the database poll as the actual correctness
-guarantee (ADR 0002). 109 tests pass against a real local PostgreSQL
-18 instance. Idempotency, exponential backoff, dead-letter requeue, and
-everything from Phase 3 onward does not exist yet.** The table at the
-bottom of this file tracks implementation status phase by phase and
-will be kept honest as work lands; nothing here should be read as
+**Status: Phase 3 done — idempotent submission, bounded exponential
+backoff with jitter, permanent-vs-retryable error classification,
+worker lease-expiry recovery, and admin-protected dead-letter
+inspection/requeue all exist and are tested (151 tests) against real
+PostgreSQL 18 and Redis 8. Pagination/filtering/cancellation (Phase 4)
+and everything after do not exist yet.** The table at the bottom of
+this file tracks implementation status phase by phase and will be kept
+honest as work lands; nothing here should be read as
 "working" until its row says so.
 
 ## Why this exists
@@ -148,9 +148,11 @@ pytest                      # both
 
 Integration tests need a real PostgreSQL database and **skip cleanly**
 (not fail) if one isn't reachable, printing the exact command to set one
-up. Verified against a real local PostgreSQL 18 instance (109 tests,
-0 failures - unit, API integration, task claiming/concurrency, worker
-end-to-end, and an actual Alembic upgrade-from-empty/downgrade cycle):
+up. Verified against a real local PostgreSQL 18 + Redis 8 (151 tests,
+0 failures - unit, API integration, task claiming/concurrency,
+idempotency (including a real concurrent-duplicate-submission test),
+worker end-to-end, lease recovery, dead-letter admin, and an actual
+Alembic upgrade-from-empty/downgrade cycle):
 
 ```bash
 # One-time setup (run as a Postgres superuser):
@@ -164,11 +166,12 @@ pytest
 
 ## API
 
-`POST /api/v1/tasks` and `GET /api/v1/tasks/{taskId}` are implemented;
-submission also pushes a best-effort Redis wake-up notification.
-Listing, cancellation, and dead-letter administration are Phase 4. See
-[`docs/api.md`](docs/api.md) and the full target contract in
-[`PROJECT_PLAN.md`](PROJECT_PLAN.md) section 7.
+`POST /api/v1/tasks` (with optional `Idempotency-Key` support),
+`GET /api/v1/tasks/{taskId}`, `GET /api/v1/dead-letters`, and
+`POST /api/v1/dead-letters/{taskId}/requeue` (the last two admin-token
+protected) are implemented. Listing with pagination/filtering and
+cancellation are Phase 4. See [`docs/api.md`](docs/api.md) and the full
+target contract in [`PROJECT_PLAN.md`](PROJECT_PLAN.md) section 7.
 
 ## Worker
 
@@ -176,11 +179,13 @@ Listing, cancellation, and dead-letter administration are Phase 4. See
 independent claim/process loops against the registered handlers in
 [`src/pulsequeue/workers/handlers.py`](src/pulsequeue/workers/handlers.py)
 (`generateReport`, `calculateMetrics`, `processFile`, `sendNotification`,
-`simulateFailure`). A failed attempt is requeued immediately if attempts
-remain, else the task goes to `dead_letter` - with no backoff delay yet
-and no distinction between retryable and permanent errors (both are
-explicit Phase 3 simplifications, called out in
-`TaskRepository.recordFailure`'s docstring).
+`simulateFailure`), plus a recovery loop that returns tasks whose
+worker lease expired back to `queued`. A failed attempt is requeued
+with bounded exponential backoff (`PULSEQUEUE_RETRY_BASE_DELAY_SECONDS`/
+`_MAX_DELAY_SECONDS`) if attempts remain; a `PermanentTaskError` (e.g.
+`processFile`'s missing-file/unsafe-path errors) goes straight to
+`failed` regardless of attempts left, and exhausting attempts on an
+ordinary retryable error goes to `dead_letter`.
 
 ## Monitoring
 
@@ -212,9 +217,10 @@ they are measured.
   command, doesn't report a false pass) if no database is reachable at
   `TEST_DATABASE_URL` - this is tested and confirmed working, not just
   intended.
-- Idempotency, exponential backoff, retryable-vs-permanent error
-  classification, lease-expiry recovery, and dead-letter administration
-  do not exist yet (Phase 3).
+- Idempotency keys share one constant scope (not per-client) until real
+  authentication exists - see docs/threatModel.md.
+- Pagination/filtering for `GET /api/v1/tasks` (there is no such
+  endpoint yet) and cancellation do not exist yet (Phase 4).
 - No CI pipeline exists yet (Phase 5).
 - No benchmark results exist yet (Phase 7) — none will be claimed until
   measured and committed with their exact configuration.
@@ -225,8 +231,8 @@ they are measured.
 |---|---|---|
 | 0 | Architecture, ADRs, repo/environment setup | Done |
 | 1 | API, domain model, PostgreSQL persistence, migrations, tests | Done |
-| 2 | Redis integration, worker execution, task claiming | Done — 111/111 tests pass against real PostgreSQL 18 and real Redis 8 (both the unreachable-Redis degradation path and the real notify/wait happy path verified) |
-| 3 | Idempotency, retries, leases, dead-letter handling, recovery | Not started |
+| 2 | Redis integration, worker execution, task claiming | Done |
+| 3 | Idempotency, retries, leases, dead-letter handling, recovery | Done — 151/151 tests pass against real PostgreSQL 18 and real Redis 8, including a genuine concurrent-duplicate-submission test and a simulated-dead-worker lease recovery test |
 | 4 | Pagination, filtering, cancellation, API quality | Not started |
 | 5 | Comprehensive tests and GitHub Actions CI | Not started |
 | 6 | Health checks, metrics, structured logs, runbook | Not started |
