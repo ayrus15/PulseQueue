@@ -12,17 +12,26 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from pulsequeue.core.config import getSettings
 from pulsequeue.main import createApp
 from pulsequeue.persistence.database import createSessionFactory
+from pulsequeue.queueing.redisQueue import createRedisClient
 
 
 @pytest_asyncio.fixture
 async def client(engine: AsyncEngine) -> AsyncIterator[AsyncClient]:
     application = createApp()
     application.state.sessionFactory = createSessionFactory(engine)
+    # Redis is best-effort (ADR 0002): submission must still work when it's
+    # unreachable, which this exercises whenever Redis isn't installed.
+    redisClient = createRedisClient(getSettings().redisUrl)
+    application.state.redisClient = redisClient
     transport = ASGITransport(app=application)
-    async with AsyncClient(transport=transport, base_url="http://test") as httpClient:
-        yield httpClient
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as httpClient:
+            yield httpClient
+    finally:
+        await redisClient.aclose()
 
 
 async def testSubmitThenRetrieveATask(client: AsyncClient) -> None:

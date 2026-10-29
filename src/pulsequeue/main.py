@@ -13,6 +13,7 @@ from pulsequeue.api.routes.tasks import router as tasksRouter
 from pulsequeue.core.config import getSettings
 from pulsequeue.core.loggingConfig import configureLogging
 from pulsequeue.persistence.database import createEngine, createSessionFactory
+from pulsequeue.queueing.redisQueue import createRedisClient
 
 
 @asynccontextmanager
@@ -21,9 +22,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configureLogging(settings.logLevel)
     engine = createEngine(settings.databaseUrl)
     app.state.sessionFactory = createSessionFactory(engine)
+    app.state.redisClient = createRedisClient(settings.redisUrl)
     try:
         yield
     finally:
+        await app.state.redisClient.aclose()
         await engine.dispose()
 
 

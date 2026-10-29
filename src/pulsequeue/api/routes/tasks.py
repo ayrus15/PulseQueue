@@ -9,14 +9,16 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, status
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pulsequeue.api.dependencies import getSession
+from pulsequeue.api.dependencies import getRedisClient, getSession
 from pulsequeue.api.schemas import TaskDetailResponse, TaskSubmissionRequest, TaskSubmissionResponse
 from pulsequeue.core.config import Settings, getSettings
 from pulsequeue.domain.taskTypes import validatePayload
 from pulsequeue.persistence.models import TaskRecord
 from pulsequeue.persistence.repositories import NewTaskInput, TaskRepository
+from pulsequeue.queueing.redisQueue import notifyTaskReady
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 
@@ -45,6 +47,7 @@ async def submitTask(
     submission: TaskSubmissionRequest,
     session: AsyncSession = Depends(getSession),
     settings: Settings = Depends(getSettings),
+    redisClient: Redis = Depends(getRedisClient),
 ) -> TaskSubmissionResponse:
     # Validates the task type and payload shape before anything is persisted,
     # per FR1: unsupported types and malformed payloads never reach the database.
@@ -59,6 +62,10 @@ async def submitTask(
             correlationId=str(uuid.uuid4()),
         )
     )
+    # Best-effort only (ADR 0002) - the task is already durably committed
+    # above regardless of whether this notification is delivered.
+    await notifyTaskReady(redisClient)
+
     return TaskSubmissionResponse(
         taskId=record.id,
         status=record.status,
