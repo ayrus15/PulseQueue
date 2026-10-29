@@ -1,8 +1,4 @@
-"""SQLAlchemy ORM models. PostgreSQL-only (JSONB, native UUID) - see ADR 0001.
-
-``idempotency_records`` (Phase 3) is added in its own migration when the
-code that writes to it lands, per PROJECT_PLAN.md's phased order.
-"""
+"""SQLAlchemy ORM models. PostgreSQL-only (JSONB, native UUID) - see ADR 0001."""
 
 from __future__ import annotations
 
@@ -108,3 +104,32 @@ class TaskAttemptRecord(Base):
     errorCode: Mapped[str | None] = mapped_column("error_code", String(100), nullable=True)
     errorMessage: Mapped[str | None] = mapped_column("error_message", Text, nullable=True)
     durationMs: Mapped[int | None] = mapped_column("duration_ms", Integer, nullable=True)
+
+
+class IdempotencyRecord(Base):
+    """Maps a client's ``(scope, idempotencyKey)`` to the task it created.
+
+    The unique constraint is the actual duplicate-prevention mechanism
+    (ADR 0004) - application code only decides what to do when it's hit,
+    never whether duplicates are possible.
+    """
+
+    __tablename__ = "idempotency_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "scope", "idempotency_key", name="uq_idempotency_records_scope_key"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    scope: Mapped[str] = mapped_column(String(100), nullable=False)
+    idempotencyKey: Mapped[str] = mapped_column("idempotency_key", String(200), nullable=False)
+    requestFingerprint: Mapped[str] = mapped_column(
+        "request_fingerprint", String(64), nullable=False
+    )
+    taskId: Mapped[uuid.UUID] = mapped_column(
+        "task_id", ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
+    )
+    createdAt: Mapped[datetime] = mapped_column(
+        "created_at", DateTime(timezone=True), nullable=False
+    )
