@@ -5,11 +5,13 @@ tasks over HTTP, PostgreSQL durably records them, and independent
 worker processes execute them concurrently with bounded retries,
 idempotent submission, and crash recovery.
 
-**Status: Phase 1 done — the API, domain model, and PostgreSQL
-persistence layer exist, and their test suite (81 tests) passes against
-a real local PostgreSQL 18 instance. Phase 2+ (Redis, workers, retries,
-idempotency, and everything after) does not exist yet.** The table at
-the bottom of this file tracks implementation status phase by phase and
+**Status: Phase 2 done — a real worker process claims tasks, runs the
+five demo handlers, and records attempt history; Redis gives it a
+low-latency wake-up, with the database poll as the actual correctness
+guarantee (ADR 0002). 109 tests pass against a real local PostgreSQL
+18 instance. Idempotency, exponential backoff, dead-letter requeue, and
+everything from Phase 3 onward does not exist yet.** The table at the
+bottom of this file tracks implementation status phase by phase and
 will be kept honest as work lands; nothing here should be read as
 "working" until its row says so.
 
@@ -68,9 +70,12 @@ Dependency versions are pinned in [`pyproject.toml`](pyproject.toml).
   `python`/`py` pointed at a broken Python 3.13 install; `py -3.11` was
   used instead and is recommended until that's fixed locally — see
   [ADR 0000](docs/decisions/0000-acceptance-criteria.md) for details.
-- Docker Desktop (or Docker Engine + Compose) — **not yet verified on
-  this machine**; required starting Phase 2 for PostgreSQL and Redis.
-  Install from <https://docs.docker.com/get-docker/>, then confirm with:
+- **Docker is still not installed on this development machine.**
+  PostgreSQL 18 was installed directly instead (see "Current
+  limitations"); Redis has not been, so the worker and API run with
+  Redis genuinely unreachable - which is by design survivable (ADR
+  0002), not untested. Install from
+  <https://docs.docker.com/get-docker/>, then confirm with:
 
   ```bash
   docker compose version
@@ -92,16 +97,18 @@ pip install -e ".[dev]"
 
 Verified on this machine — see
 [ADR 0000](docs/decisions/0000-acceptance-criteria.md) for the exact
-commands and output. The worker entry point (Phase 2) and Docker
-Compose stack (Phase 2/9) don't exist yet; the API runs directly:
+commands and output. The Docker Compose stack (Phase 9) doesn't exist
+yet; run the API and worker directly, each against a PostgreSQL
+database reachable at `DATABASE_URL` (see `.env.example`):
 
 ```bash
 uvicorn pulsequeue.main:app --reload
+python -m pulsequeue.workers.worker
 ```
 
-against a PostgreSQL database reachable at `DATABASE_URL` (see
-`.env.example`). Interactive API docs are then at
-`http://localhost:8000/docs`.
+Interactive API docs are then at `http://localhost:8000/docs`. The
+worker also tries to reach Redis (`REDIS_URL`) for low-latency wake-ups,
+but runs correctly without it - see ADR 0002.
 
 ## Environment variables
 
@@ -128,10 +135,10 @@ against a real database as part of the test suite.
 
 ## Running the stack
 
-Not yet implemented. Phase 2 adds `docker-compose.yml` (PostgreSQL +
-Redis) and a worker entry point; Phase 9 finalizes a one-command local
-startup. Until then, run `uvicorn pulsequeue.main:app --reload` against
-a PostgreSQL instance you provide yourself (see "Setup" above).
+`docker-compose.yml` doesn't exist yet (Phase 9 finalizes a one-command
+local startup). Until then, run the API and worker directly - see
+"Setup" above - against a PostgreSQL instance you provide yourself, and
+optionally Redis (the worker degrades gracefully without it).
 
 ## Running tests
 
@@ -143,9 +150,9 @@ pytest                      # both
 
 Integration tests need a real PostgreSQL database and **skip cleanly**
 (not fail) if one isn't reachable, printing the exact command to set one
-up. Verified against a real local PostgreSQL 18 instance (81 tests,
-0 failures - unit, API integration, and an actual Alembic
-upgrade-from-empty/downgrade cycle):
+up. Verified against a real local PostgreSQL 18 instance (109 tests,
+0 failures - unit, API integration, task claiming/concurrency, worker
+end-to-end, and an actual Alembic upgrade-from-empty/downgrade cycle):
 
 ```bash
 # One-time setup (run as a Postgres superuser):
@@ -159,12 +166,23 @@ pytest
 
 ## API
 
-`POST /api/v1/tasks` and `GET /api/v1/tasks/{taskId}` are implemented.
+`POST /api/v1/tasks` and `GET /api/v1/tasks/{taskId}` are implemented;
+submission also pushes a best-effort Redis wake-up notification.
 Listing, cancellation, and dead-letter administration are Phase 4. See
-[`docs/api.md`](docs/api.md) (still mostly a placeholder - will be
-rewritten with captured real examples before Phase 1 is called done)
-and the full target contract in [`PROJECT_PLAN.md`](PROJECT_PLAN.md)
-section 7.
+[`docs/api.md`](docs/api.md) and the full target contract in
+[`PROJECT_PLAN.md`](PROJECT_PLAN.md) section 7.
+
+## Worker
+
+`python -m pulsequeue.workers.worker` runs `PULSEQUEUE_WORKER_CONCURRENCY`
+independent claim/process loops against the registered handlers in
+[`src/pulsequeue/workers/handlers.py`](src/pulsequeue/workers/handlers.py)
+(`generateReport`, `calculateMetrics`, `processFile`, `sendNotification`,
+`simulateFailure`). A failed attempt is requeued immediately if attempts
+remain, else the task goes to `dead_letter` - with no backoff delay yet
+and no distinction between retryable and permanent errors (both are
+explicit Phase 3 simplifications, called out in
+`TaskRepository.recordFailure`'s docstring).
 
 ## Monitoring
 
@@ -186,13 +204,19 @@ they are measured.
   the repository owner in an elevated shell, since this session can't
   self-elevate) and is what the commands above and the test suite were
   actually run against. `docker compose version` is the command to
-  confirm Docker once it's installed, needed starting Phase 2 for Redis.
+  confirm Docker once it's installed.
+- **Redis is not installed either.** The worker and API were both run
+  and tested with Redis genuinely unreachable; per ADR 0002 this is a
+  documented, tested degradation path (logged warnings, no crash, no
+  lost tasks - just no low-latency wake-up), not an unverified claim.
+  `redis-cli ping` is the command to confirm Redis once it's installed.
 - `pytest tests/integration` **skips cleanly** (prints the exact setup
   command, doesn't report a false pass) if no database is reachable at
   `TEST_DATABASE_URL` - this is tested and confirmed working, not just
   intended.
-- Redis, the worker process, idempotency, retries, and dead-letter
-  handling do not exist yet (Phase 2/3).
+- Idempotency, exponential backoff, retryable-vs-permanent error
+  classification, lease-expiry recovery, and dead-letter administration
+  do not exist yet (Phase 3).
 - No CI pipeline exists yet (Phase 5).
 - No benchmark results exist yet (Phase 7) — none will be claimed until
   measured and committed with their exact configuration.
@@ -202,8 +226,8 @@ they are measured.
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Architecture, ADRs, repo/environment setup | Done |
-| 1 | API, domain model, PostgreSQL persistence, migrations, tests | Done — 81/81 tests pass locally (unit, API integration, migration up/down) against real PostgreSQL 18 |
-| 2 | Redis integration, worker execution, task claiming | Not started |
+| 1 | API, domain model, PostgreSQL persistence, migrations, tests | Done |
+| 2 | Redis integration, worker execution, task claiming | Done — 109/109 tests pass locally (adds claiming/concurrency and worker end-to-end tests) against real PostgreSQL 18; Redis tested unreachable (not installed) |
 | 3 | Idempotency, retries, leases, dead-letter handling, recovery | Not started |
 | 4 | Pagination, filtering, cancellation, API quality | Not started |
 | 5 | Comprehensive tests and GitHub Actions CI | Not started |
