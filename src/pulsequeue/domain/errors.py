@@ -55,3 +55,12 @@ class IdempotencyConflictError(PulseQueueError):
     def __init__(self, idempotencyKey: str) -> None:
         self.idempotencyKey = idempotencyKey
         super().__init__(f"Idempotency key reused with a different request: {idempotencyKey!r}")
+
+
+class PermanentTaskError(PulseQueueError):
+    """A task handler raises this to signal its failure should never be
+    retried, even if attempts remain (ADR 0004) - e.g. a missing file or
+    an unsafe path in ``processFile``. Any other exception a handler
+    raises is treated as retryable by default.
+    """
+

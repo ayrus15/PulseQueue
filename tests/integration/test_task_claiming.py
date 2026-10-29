@@ -86,8 +86,15 @@ async def testRecordFailureRequeuesWhenAttemptsRemain(dbSession: AsyncSession) -
     repository = TaskRepository(dbSession)
     await repository.claimNextTasks(workerId="worker-1", leaseSeconds=30)
 
+    failedAt = datetime.now(UTC)
     outcome = await repository.recordFailure(
-        task, errorCode="RuntimeError", errorMessage="boom", failedAt=datetime.now(UTC)
+        task,
+        errorCode="RuntimeError",
+        errorMessage="boom",
+        failedAt=failedAt,
+        isPermanent=False,
+        baseDelaySeconds=1.0,
+        maxDelaySeconds=60.0,
     )
 
     assert outcome == AttemptOutcome.RETRIED
@@ -95,6 +102,8 @@ async def testRecordFailureRequeuesWhenAttemptsRemain(dbSession: AsyncSession) -
     assert refreshed.status == TaskStatus.QUEUED.value
     assert refreshed.lastErrorCode == "RuntimeError"
     assert refreshed.leaseOwner is None
+    # Backoff pushes scheduledAt into the future rather than requeuing immediately.
+    assert refreshed.scheduledAt > failedAt
 
 
 async def testRecordFailureDeadLettersAfterExhaustingAttempts(dbSession: AsyncSession) -> None:
@@ -103,12 +112,38 @@ async def testRecordFailureDeadLettersAfterExhaustingAttempts(dbSession: AsyncSe
     await repository.claimNextTasks(workerId="worker-1", leaseSeconds=30)
 
     outcome = await repository.recordFailure(
-        task, errorCode="RuntimeError", errorMessage="boom", failedAt=datetime.now(UTC)
+        task,
+        errorCode="RuntimeError",
+        errorMessage="boom",
+        failedAt=datetime.now(UTC),
+        isPermanent=False,
+        baseDelaySeconds=1.0,
+        maxDelaySeconds=60.0,
     )
 
     assert outcome == AttemptOutcome.DEAD_LETTER
     refreshed = await repository.getTaskById(task.id)
     assert refreshed.status == TaskStatus.DEAD_LETTER.value
+
+
+async def testRecordFailureGoesStraightToFailedWhenPermanent(dbSession: AsyncSession) -> None:
+    task = await _createQueuedTask(dbSession, maxAttempts=4)
+    repository = TaskRepository(dbSession)
+    await repository.claimNextTasks(workerId="worker-1", leaseSeconds=30)
+
+    outcome = await repository.recordFailure(
+        task,
+        errorCode="ProcessFileError",
+        errorMessage="unsafe file name",
+        failedAt=datetime.now(UTC),
+        isPermanent=True,
+        baseDelaySeconds=1.0,
+        maxDelaySeconds=60.0,
+    )
+
+    assert outcome == AttemptOutcome.FAILED
+    refreshed = await repository.getTaskById(task.id)
+    assert refreshed.status == TaskStatus.FAILED.value
 
 
 async def testAttemptRepositoryRecordsStartAndFinish(dbSession: AsyncSession) -> None:

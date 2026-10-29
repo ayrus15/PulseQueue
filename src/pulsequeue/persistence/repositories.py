@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pulsequeue.domain.errors import IdempotencyConflictError, TaskNotFoundError
 from pulsequeue.domain.idempotency import computeRequestFingerprint
 from pulsequeue.domain.models import AttemptOutcome, TaskStatus
+from pulsequeue.domain.retryPolicy import computeRetryDelaySeconds
 from pulsequeue.domain.stateMachine import TaskEvent, applyTransition
 from pulsequeue.persistence.models import IdempotencyRecord, TaskAttemptRecord, TaskRecord
 
@@ -191,17 +192,23 @@ class TaskRepository:
         await self._session.commit()
 
     async def recordFailure(
-        self, task: TaskRecord, errorCode: str, errorMessage: str, failedAt: datetime
+        self,
+        task: TaskRecord,
+        errorCode: str,
+        errorMessage: str,
+        failedAt: datetime,
+        isPermanent: bool,
+        baseDelaySeconds: float,
+        maxDelaySeconds: float,
     ) -> AttemptOutcome:
-        """Move ``task`` back to ``queued`` if attempts remain, else
-        ``dead_letter``. Returns which happened, for the caller to record on
-        the attempt row.
+        """Apply a failed attempt's consequence and return which one:
 
-        Phase 2 simplification: a retried task is requeued immediately
-        (``scheduledAt = failedAt``) with no backoff delay, and every
-        failure is treated as retryable - Phase 3 adds the exponential
-        backoff calculation and permanent-vs-retryable error
-        classification (ADR 0004).
+        - ``isPermanent`` -> ``failed``, regardless of attempts remaining
+          (ADR 0004: a handler raises PermanentTaskError for this).
+        - attempts exhausted -> ``dead_letter``.
+        - otherwise -> back to ``queued``, with bounded exponential
+          backoff plus jitter (``domain/retryPolicy.py``) before it's
+          eligible to be claimed again.
         """
         task.lastErrorCode = errorCode
         task.lastErrorMessage = errorMessage
@@ -209,14 +216,22 @@ class TaskRepository:
         task.leaseOwner = None
         task.leaseExpiresAt = None
 
-        if task.attemptCount >= task.maxAttempts:
+        if isPermanent:
+            task.status = applyTransition(TaskStatus(task.status), TaskEvent.PERMANENT_FAILURE)
+            outcome = AttemptOutcome.FAILED
+        elif task.attemptCount >= task.maxAttempts:
             task.status = applyTransition(TaskStatus(task.status), TaskEvent.RETRY_LIMIT_EXHAUSTED)
             outcome = AttemptOutcome.DEAD_LETTER
         else:
             task.status = applyTransition(
                 TaskStatus(task.status), TaskEvent.RETRYABLE_FAILURE_WITH_ATTEMPTS_REMAINING
             )
-            task.scheduledAt = failedAt
+            delaySeconds = computeRetryDelaySeconds(
+                nextAttemptNumber=task.attemptCount + 1,
+                baseDelaySeconds=baseDelaySeconds,
+                maxDelaySeconds=maxDelaySeconds,
+            )
+            task.scheduledAt = failedAt + timedelta(seconds=delaySeconds)
             outcome = AttemptOutcome.RETRIED
 
         await self._session.commit()

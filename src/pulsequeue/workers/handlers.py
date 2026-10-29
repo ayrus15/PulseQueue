@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
 
+from pulsequeue.domain.errors import PermanentTaskError
 from pulsequeue.domain.taskTypes import (
     CalculateMetricsPayload,
     GenerateReportPayload,
@@ -47,9 +48,10 @@ async def calculateMetrics(
     }
 
 
-class ProcessFileError(Exception):
+class ProcessFileError(PermanentTaskError):
     """Raised for anything wrong with a processFile request - missing
     file, path escaping the controlled directory, or an unreadable file.
+    Permanent: retrying won't make a missing or unsafe file appear.
     """
 
 

@@ -5,6 +5,7 @@ executed by a real Worker instance.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -42,6 +43,10 @@ async def worker(engine: AsyncEngine, tmp_path: Path) -> AsyncIterator[Worker]:
         handlerRegistry=handlerRegistry,
         leaseSeconds=30,
         pollIntervalSeconds=1.0,
+        # Tiny but nonzero: tests still exercise real backoff scheduling
+        # (scheduledAt moves into the future) without actually waiting.
+        retryBaseDelaySeconds=0.01,
+        retryMaxDelaySeconds=0.02,
         concurrency=1,
     )
 
@@ -95,6 +100,7 @@ async def testWorkerRequeuesOnFailureThenDeadLettersAfterExhaustion(
     assert afterFirstAttempt.attemptCount == 1
     assert afterFirstAttempt.lastErrorCode == "RuntimeError"
 
+    await asyncio.sleep(0.05)  # let the tiny test backoff delay elapse
     await worker.claimAndProcessOne()
     async with sessionFactory() as session:
         afterSecondAttempt = await TaskRepository(session).getTaskById(task.id)
@@ -117,6 +123,7 @@ async def testWorkerEventuallySucceedsAfterConfiguredFailures(
         )
 
     await worker.claimAndProcessOne()  # attempt 1: fails, requeued
+    await asyncio.sleep(0.05)  # let the tiny test backoff delay elapse
     await worker.claimAndProcessOne()  # attempt 2: succeeds
 
     async with sessionFactory() as session:
@@ -160,3 +167,30 @@ async def testProcessFileHandlerReadsFromTheControlledDirectory(
         refreshed = await TaskRepository(session).getTaskById(task.id)
     assert refreshed.status == TaskStatus.SUCCEEDED.value
     assert refreshed.result == {"fileName": "report.txt", "sizeBytes": 18, "lineCount": 2}
+
+
+async def testPermanentFailureGoesStraightToFailedNotDeadLetter(
+    engine: AsyncEngine, worker: Worker
+) -> None:
+    """processFile's missing-file error is a PermanentTaskError (ADR 0004) -
+    it must go to `failed` on the very first attempt, never retried or
+    dead-lettered, even with many attempts still available.
+    """
+    sessionFactory = createSessionFactory(engine)
+    async with sessionFactory() as session:
+        task = await TaskRepository(session).createTask(
+            NewTaskInput(
+                taskType="processFile",
+                payload={"fileName": "does-not-exist.txt"},
+                maxAttempts=5,
+                correlationId="corr-5",
+            )
+        )
+
+    await worker.claimAndProcessOne()
+
+    async with sessionFactory() as session:
+        refreshed = await TaskRepository(session).getTaskById(task.id)
+    assert refreshed.status == TaskStatus.FAILED.value
+    assert refreshed.attemptCount == 1
+    assert refreshed.lastErrorCode == "ProcessFileError"

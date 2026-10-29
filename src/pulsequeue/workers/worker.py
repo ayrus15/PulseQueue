@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from pulsequeue.core.config import Settings, getSettings
 from pulsequeue.core.loggingConfig import configureLogging
+from pulsequeue.domain.errors import PermanentTaskError
 from pulsequeue.domain.models import AttemptOutcome
 from pulsequeue.domain.taskTypes import validatePayload
 from pulsequeue.persistence.database import createEngine, createSessionFactory
@@ -46,6 +47,8 @@ class Worker:
         handlerRegistry: dict[str, HandlerFunc],
         leaseSeconds: int,
         pollIntervalSeconds: float,
+        retryBaseDelaySeconds: float = 1.0,
+        retryMaxDelaySeconds: float = 60.0,
         concurrency: int = 1,
     ) -> None:
         self._workerId = workerId
@@ -54,6 +57,8 @@ class Worker:
         self._handlerRegistry = handlerRegistry
         self._leaseSeconds = leaseSeconds
         self._pollIntervalSeconds = pollIntervalSeconds
+        self._retryBaseDelaySeconds = retryBaseDelaySeconds
+        self._retryMaxDelaySeconds = retryMaxDelaySeconds
         self._concurrency = concurrency
         self._stopping = asyncio.Event()
 
@@ -157,7 +162,13 @@ class Worker:
         errorCode = type(exc).__name__
         errorMessage = str(exc)
         outcome = await taskRepository.recordFailure(
-            task, errorCode=errorCode, errorMessage=errorMessage, failedAt=endedAt
+            task,
+            errorCode=errorCode,
+            errorMessage=errorMessage,
+            failedAt=endedAt,
+            isPermanent=isinstance(exc, PermanentTaskError),
+            baseDelaySeconds=self._retryBaseDelaySeconds,
+            maxDelaySeconds=self._retryMaxDelaySeconds,
         )
         await attemptRepository.finishAttempt(
             attempt,
@@ -190,6 +201,8 @@ async def runWorker(settings: Settings, workerId: str | None = None) -> None:
         handlerRegistry=handlerRegistry,
         leaseSeconds=settings.workerLeaseSeconds,
         pollIntervalSeconds=settings.workerPollIntervalSeconds,
+        retryBaseDelaySeconds=settings.retryBaseDelaySeconds,
+        retryMaxDelaySeconds=settings.retryMaxDelaySeconds,
         concurrency=settings.workerConcurrency,
     )
 
