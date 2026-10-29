@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Header, Response, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,23 +45,33 @@ def _toDetailResponse(record: TaskRecord) -> TaskDetailResponse:
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=TaskSubmissionResponse)
 async def submitTask(
     submission: TaskSubmissionRequest,
+    response: Response,
     session: AsyncSession = Depends(getSession),
     settings: Settings = Depends(getSettings),
     redisClient: Redis = Depends(getRedisClient),
+    idempotencyKey: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> TaskSubmissionResponse:
     # Validates the task type and payload shape before anything is persisted,
     # per FR1: unsupported types and malformed payloads never reach the database.
     validatePayload(submission.taskType, submission.payload)
 
     repository = TaskRepository(session)
-    record = await repository.createTask(
-        NewTaskInput(
-            taskType=submission.taskType,
-            payload=submission.payload,
-            maxAttempts=submission.maxAttempts or settings.defaultMaxAttempts,
-            correlationId=str(uuid.uuid4()),
-        )
+    newTask = NewTaskInput(
+        taskType=submission.taskType,
+        payload=submission.payload,
+        maxAttempts=submission.maxAttempts or settings.defaultMaxAttempts,
+        correlationId=str(uuid.uuid4()),
     )
+
+    if idempotencyKey is None:
+        record = await repository.createTask(newTask)
+    else:
+        result = await repository.createTaskIdempotently(newTask, idempotencyKey)
+        record = result.task
+        if not result.wasCreated:
+            # Reusing an existing request is not "created" - ADR 0004.
+            response.status_code = status.HTTP_200_OK
+
     # Best-effort only (ADR 0002) - the task is already durably committed
     # above regardless of whether this notification is delivered.
     await notifyTaskReady(redisClient)

@@ -12,12 +12,18 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pulsequeue.domain.errors import TaskNotFoundError
+from pulsequeue.domain.errors import IdempotencyConflictError, TaskNotFoundError
+from pulsequeue.domain.idempotency import computeRequestFingerprint
 from pulsequeue.domain.models import AttemptOutcome, TaskStatus
 from pulsequeue.domain.stateMachine import TaskEvent, applyTransition
-from pulsequeue.persistence.models import TaskAttemptRecord, TaskRecord
+from pulsequeue.persistence.models import IdempotencyRecord, TaskAttemptRecord, TaskRecord
+
+DEFAULT_IDEMPOTENCY_SCOPE = "default"
+"""Until authentication exists, every client shares this scope (ADR 0004) -
+the column already supports per-client scoping without a schema change."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +32,14 @@ class NewTaskInput:
     payload: dict[str, object]
     maxAttempts: int
     correlationId: str
+
+
+@dataclass(frozen=True, slots=True)
+class TaskCreationResult:
+    task: TaskRecord
+    wasCreated: bool
+    """False when an idempotency key matched an existing request and
+    ``task`` is that original task, not a new one."""
 
 
 class TaskRepository:
@@ -52,6 +66,82 @@ class TaskRepository:
         self._session.add(record)
         await self._session.commit()
         return record
+
+    async def createTaskIdempotently(
+        self,
+        newTask: NewTaskInput,
+        idempotencyKey: str,
+        scope: str = DEFAULT_IDEMPOTENCY_SCOPE,
+    ) -> TaskCreationResult:
+        """Create a task guarded by an idempotency key.
+
+        The task and its idempotency record are inserted in the same
+        transaction. If ``(scope, idempotencyKey)`` already exists
+        (enforced by a PostgreSQL unique constraint, not just this check
+        - see ADR 0004), a matching fingerprint returns the *original*
+        task instead of creating a new one, and a mismatched fingerprint
+        raises IdempotencyConflictError. This makes concurrent duplicate
+        submissions resolve to exactly one task: only one request's
+        INSERT can win the unique constraint, and the other's
+        IntegrityError is handled the same way a pre-existing row would
+        be.
+        """
+        now = datetime.now(UTC)
+        record = TaskRecord(
+            id=uuid.uuid4(),
+            taskType=newTask.taskType,
+            payload=newTask.payload,
+            status=TaskStatus.QUEUED.value,
+            priority=0,
+            attemptCount=0,
+            maxAttempts=newTask.maxAttempts,
+            createdAt=now,
+            scheduledAt=now,
+            updatedAt=now,
+            correlationId=newTask.correlationId,
+        )
+        fingerprint = computeRequestFingerprint(
+            newTask.taskType, newTask.payload, newTask.maxAttempts
+        )
+        idempotencyRecord = IdempotencyRecord(
+            id=uuid.uuid4(),
+            scope=scope,
+            idempotencyKey=idempotencyKey,
+            requestFingerprint=fingerprint,
+            taskId=record.id,
+            createdAt=now,
+        )
+        try:
+            self._session.add(record)
+            # Flushed separately so the task row exists before the
+            # idempotency row's foreign key is checked, regardless of
+            # unit-of-work insert ordering between the two unrelated models.
+            await self._session.flush()
+            self._session.add(idempotencyRecord)
+            await self._session.commit()
+        except IntegrityError:
+            await self._session.rollback()
+            return await self._resolveIdempotencyConflict(scope, idempotencyKey, fingerprint)
+        return TaskCreationResult(task=record, wasCreated=True)
+
+    async def _resolveIdempotencyConflict(
+        self, scope: str, idempotencyKey: str, fingerprint: str
+    ) -> TaskCreationResult:
+        existing = await self._session.scalar(
+            select(IdempotencyRecord).where(
+                IdempotencyRecord.scope == scope,
+                IdempotencyRecord.idempotencyKey == idempotencyKey,
+            )
+        )
+        if existing is None:
+            # The row we collided with is gone by the time we re-read it -
+            # extremely unlikely (nothing deletes idempotency records), but
+            # safer to surface clearly than to retry silently forever.
+            raise IdempotencyConflictError(idempotencyKey)
+        if existing.requestFingerprint != fingerprint:
+            raise IdempotencyConflictError(idempotencyKey)
+        existingTask = await self.getTaskById(existing.taskId)
+        return TaskCreationResult(task=existingTask, wasCreated=False)
 
     async def getTaskById(self, taskId: uuid.UUID) -> TaskRecord:
         record = await self._session.get(TaskRecord, taskId)

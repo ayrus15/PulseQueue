@@ -105,3 +105,39 @@ async def testGetUnknownTaskReturns404(client: AsyncClient) -> None:
 async def testGetTaskWithMalformedIdReturns422(client: AsyncClient) -> None:
     response = await client.get("/api/v1/tasks/not-a-uuid")
     assert response.status_code == 422
+
+
+async def testRepeatingAnIdempotencyKeyReturnsTheOriginalTaskWith200(client: AsyncClient) -> None:
+    payload = {
+        "taskType": "generateReport",
+        "payload": {"reportName": "weekly", "periodDays": 7},
+    }
+    headers = {"Idempotency-Key": "api-key-1"}
+
+    first = await client.post("/api/v1/tasks", json=payload, headers=headers)
+    assert first.status_code == 201
+    firstTaskId = first.json()["taskId"]
+
+    second = await client.post("/api/v1/tasks", json=payload, headers=headers)
+    assert second.status_code == 200
+    assert second.json()["taskId"] == firstTaskId
+
+
+async def testReusingAnIdempotencyKeyWithADifferentPayloadReturns409(
+    client: AsyncClient,
+) -> None:
+    headers = {"Idempotency-Key": "api-key-2"}
+    first = await client.post(
+        "/api/v1/tasks",
+        json={"taskType": "generateReport", "payload": {"reportName": "a", "periodDays": 1}},
+        headers=headers,
+    )
+    assert first.status_code == 201
+
+    second = await client.post(
+        "/api/v1/tasks",
+        json={"taskType": "generateReport", "payload": {"reportName": "b", "periodDays": 1}},
+        headers=headers,
+    )
+    assert second.status_code == 409
+    assert second.json()["error"]["code"] == "IdempotencyConflictError"
