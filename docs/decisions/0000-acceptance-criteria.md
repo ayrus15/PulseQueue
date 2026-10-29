@@ -71,6 +71,28 @@ Findings:
 - The GitHub repository `ayrus15/PulseQueue` already exists and was
   empty prior to this commit.
 
+## Update (Phase 1): PostgreSQL installed
+
+PostgreSQL 18 was installed via Chocolatey (`choco install postgresql
+--params "/Password:..."`), run by the repository owner in an elevated
+shell since this session cannot self-elevate UAC. Role and databases
+created as the `postgres` superuser:
+
+```sql
+CREATE ROLE pulsequeue LOGIN PASSWORD 'change-me-locally';
+CREATE DATABASE pulsequeue OWNER pulsequeue;
+CREATE DATABASE pulsequeue_test OWNER pulsequeue;
+CREATE DATABASE pulsequeue_migrations_test OWNER pulsequeue;
+```
+
+With this in place, `alembic upgrade head` was run against `pulsequeue`,
+`uvicorn pulsequeue.main:app` was started and exercised with real HTTP
+requests (`POST`/`GET /api/v1/tasks`), and the full test suite (81
+tests: unit, API integration, and an Alembic upgrade/downgrade cycle)
+was run and passed - see README.md's "Running tests" section for the
+exact commands. Docker is still not installed; it remains required for
+Phase 2's Redis dependency.
+
 ## Repository location note
 
 This project's working directory (`C:\Users\VAMSI\NewProjects\PulseQueue`)

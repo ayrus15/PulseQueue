@@ -5,11 +5,13 @@ tasks over HTTP, PostgreSQL durably records them, and independent
 worker processes execute them concurrently with bounded retries,
 idempotent submission, and crash recovery.
 
-**Status: Phase 0 — architecture and environment setup. No application
-code, API, or Docker stack exists yet.** The table at the bottom of this
-file tracks implementation status phase by phase and will be kept
-honest as work lands; nothing here should be read as "working" until
-its row says so.
+**Status: Phase 1 done — the API, domain model, and PostgreSQL
+persistence layer exist, and their test suite (81 tests) passes against
+a real local PostgreSQL 18 instance. Phase 2+ (Redis, workers, retries,
+idempotency, and everything after) does not exist yet.** The table at
+the bottom of this file tracks implementation status phase by phase and
+will be kept honest as work lands; nothing here should be read as
+"working" until its row says so.
 
 ## Why this exists
 
@@ -77,7 +79,7 @@ Dependency versions are pinned in [`pyproject.toml`](pyproject.toml).
 - Git and GitHub CLI (`gh`), if you intend to push changes or interact
   with Actions/PRs.
 
-## Setup (current state: dependency installation only)
+## Setup
 
 ```bash
 py -3.11 -m venv .venv
@@ -88,10 +90,18 @@ pip install --upgrade pip
 pip install -e ".[dev]"
 ```
 
-This has been run and verified on this machine (see
+Verified on this machine — see
 [ADR 0000](docs/decisions/0000-acceptance-criteria.md) for the exact
-commands and output). There is no application to start yet — `main.py`,
-the database schema, and the worker entry point land in Phase 1–2.
+commands and output. The worker entry point (Phase 2) and Docker
+Compose stack (Phase 2/9) don't exist yet; the API runs directly:
+
+```bash
+uvicorn pulsequeue.main:app --reload
+```
+
+against a PostgreSQL database reachable at `DATABASE_URL` (see
+`.env.example`). Interactive API docs are then at
+`http://localhost:8000/docs`.
 
 ## Environment variables
 
@@ -102,33 +112,59 @@ concurrency and lease duration, retry policy defaults). Copy it to
 
 ## Migrations
 
-Not yet implemented. Phase 1 adds Alembic migrations under
-`migrations/`; this section will be updated with the actual commands
-(`alembic upgrade head`, etc.) once they exist.
+Alembic migrations live under `migrations/`, driven by
+`src/pulsequeue/persistence/models.py`'s SQLAlchemy metadata (there is
+no reliance on `create_all` in the running application — only tests use
+it, for speed; see `tests/integration/conftest.py`).
+
+```bash
+# Uses DATABASE_URL from the environment if set, else alembic.ini's default.
+alembic upgrade head
+alembic downgrade base   # to tear back down
+```
+
+`tests/integration/test_migrations.py` runs this exact upgrade/downgrade
+against a real database as part of the test suite.
 
 ## Running the stack
 
 Not yet implemented. Phase 2 adds `docker-compose.yml` (PostgreSQL +
 Redis) and a worker entry point; Phase 9 finalizes a one-command local
-startup. This section will be rewritten against the real Compose file.
+startup. Until then, run `uvicorn pulsequeue.main:app --reload` against
+a PostgreSQL instance you provide yourself (see "Setup" above).
 
 ## Running tests
 
-Not yet implemented — no tests exist yet. Once they do:
+```bash
+pytest tests/unit          # no database required
+pytest tests/integration   # requires PostgreSQL - see below
+pytest                      # both
+```
+
+Integration tests need a real PostgreSQL database and **skip cleanly**
+(not fail) if one isn't reachable, printing the exact command to set one
+up. Verified against a real local PostgreSQL 18 instance (81 tests,
+0 failures - unit, API integration, and an actual Alembic
+upgrade-from-empty/downgrade cycle):
 
 ```bash
+# One-time setup (run as a Postgres superuser):
+#   CREATE ROLE pulsequeue LOGIN PASSWORD 'change-me-locally';
+#   CREATE DATABASE pulsequeue_test OWNER pulsequeue;
+#   CREATE DATABASE pulsequeue_migrations_test OWNER pulsequeue;
+set TEST_DATABASE_URL=postgresql+asyncpg://pulsequeue:change-me-locally@localhost:5432/pulsequeue_test
+set MIGRATIONS_TEST_DATABASE_URL=postgresql+asyncpg://pulsequeue:change-me-locally@localhost:5432/pulsequeue_migrations_test
 pytest
 ```
 
-will be the documented entry point, with integration/concurrency/
-recovery tests marked so they can be skipped when Docker is
-unavailable.
-
 ## API
 
-Not yet implemented. See [`docs/api.md`](docs/api.md) (currently a
-placeholder) and the full contract in
-[`PROJECT_PLAN.md`](PROJECT_PLAN.md) section 7.
+`POST /api/v1/tasks` and `GET /api/v1/tasks/{taskId}` are implemented.
+Listing, cancellation, and dead-letter administration are Phase 4. See
+[`docs/api.md`](docs/api.md) (still mostly a placeholder - will be
+rewritten with captured real examples before Phase 1 is called done)
+and the full target contract in [`PROJECT_PLAN.md`](PROJECT_PLAN.md)
+section 7.
 
 ## Monitoring
 
@@ -145,13 +181,18 @@ they are measured.
 
 ## Current limitations
 
-- **Docker is not installed on this development machine.** Everything
-  from Phase 2 onward (Redis, PostgreSQL, full integration/concurrency/
-  recovery tests, CI's service containers) is blocked until it is
-  installed. The exact check and command to confirm once it is
-  available: `docker compose version`.
-- No application code exists yet (Phase 0 is architecture and
-  environment setup only).
+- **Docker is still not installed** on this development machine.
+  PostgreSQL 18 was installed directly via Chocolatey instead (run by
+  the repository owner in an elevated shell, since this session can't
+  self-elevate) and is what the commands above and the test suite were
+  actually run against. `docker compose version` is the command to
+  confirm Docker once it's installed, needed starting Phase 2 for Redis.
+- `pytest tests/integration` **skips cleanly** (prints the exact setup
+  command, doesn't report a false pass) if no database is reachable at
+  `TEST_DATABASE_URL` - this is tested and confirmed working, not just
+  intended.
+- Redis, the worker process, idempotency, retries, and dead-letter
+  handling do not exist yet (Phase 2/3).
 - No CI pipeline exists yet (Phase 5).
 - No benchmark results exist yet (Phase 7) — none will be claimed until
   measured and committed with their exact configuration.
@@ -160,8 +201,8 @@ they are measured.
 
 | Phase | Scope | Status |
 |---|---|---|
-| 0 | Architecture, ADRs, repo/environment setup | **In progress (this commit)** |
-| 1 | API, domain model, PostgreSQL persistence, migrations, tests | Not started |
+| 0 | Architecture, ADRs, repo/environment setup | Done |
+| 1 | API, domain model, PostgreSQL persistence, migrations, tests | Done — 81/81 tests pass locally (unit, API integration, migration up/down) against real PostgreSQL 18 |
 | 2 | Redis integration, worker execution, task claiming | Not started |
 | 3 | Idempotency, retries, leases, dead-letter handling, recovery | Not started |
 | 4 | Pagination, filtering, cancellation, API quality | Not started |
