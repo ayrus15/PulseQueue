@@ -64,3 +64,11 @@ class PermanentTaskError(PulseQueueError):
     raises is treated as retryable by default.
     """
 
+
+class UnauthorizedError(PulseQueueError):
+    """A request to an administrative endpoint had no valid admin token.
+
+    See docs/threatModel.md - this is an interim control until real
+    per-client authentication exists.
+    """
+

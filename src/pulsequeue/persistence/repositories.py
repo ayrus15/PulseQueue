@@ -150,6 +150,34 @@ class TaskRepository:
             raise TaskNotFoundError(taskId)
         return record
 
+    async def listDeadLetterTasks(self, limit: int = 50) -> list[TaskRecord]:
+        """Most-recently-dead-lettered first. A basic listing - stable,
+        filtered pagination for every task status is Phase 4's job.
+        """
+        statement = (
+            select(TaskRecord)
+            .where(TaskRecord.status == TaskStatus.DEAD_LETTER.value)
+            .order_by(TaskRecord.updatedAt.desc())
+            .limit(limit)
+        )
+        return list((await self._session.execute(statement)).scalars().all())
+
+    async def requeueDeadLetterTask(self, taskId: uuid.UUID, requeuedAt: datetime) -> TaskRecord:
+        """Administratively requeue a dead-lettered task - resets its
+        attempt count so it gets a fresh retry budget, but keeps every
+        existing ``task_attempts`` row for audit (PROJECT_PLAN.md
+        section 6: "keep the original task and its history inspectable").
+        """
+        task = await self.getTaskById(taskId)
+        task.status = applyTransition(TaskStatus(task.status), TaskEvent.ADMIN_REQUEUE)
+        task.attemptCount = 0
+        task.scheduledAt = requeuedAt
+        task.updatedAt = requeuedAt
+        task.leaseOwner = None
+        task.leaseExpiresAt = None
+        await self._session.commit()
+        return task
+
     async def claimNextTasks(
         self, workerId: str, leaseSeconds: int, batchSize: int = 1
     ) -> list[TaskRecord]:

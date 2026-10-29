@@ -4,12 +4,16 @@ process-wide Redis client stashed on app.state by main.py's lifespan.
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import AsyncIterator
 from typing import cast
 
-from fastapi import Request
+from fastapi import Depends, Header, Request
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from pulsequeue.core.config import Settings, getSettings
+from pulsequeue.domain.errors import UnauthorizedError
 
 
 async def getSession(request: Request) -> AsyncIterator[AsyncSession]:
@@ -20,3 +24,16 @@ async def getSession(request: Request) -> AsyncIterator[AsyncSession]:
 
 def getRedisClient(request: Request) -> Redis:
     return cast(Redis, request.app.state.redisClient)
+
+
+def requireAdminToken(
+    adminToken: str | None = Header(default=None, alias="X-Admin-Token"),
+    settings: Settings = Depends(getSettings),
+) -> None:
+    """Protects administrative endpoints (dead-letter inspection/requeue)
+    with a shared secret, until real per-client authentication exists -
+    see docs/threatModel.md. ``secrets.compare_digest`` avoids leaking
+    the token's value through response-time differences.
+    """
+    if adminToken is None or not secrets.compare_digest(adminToken, settings.adminToken):
+        raise UnauthorizedError("Missing or invalid X-Admin-Token header")

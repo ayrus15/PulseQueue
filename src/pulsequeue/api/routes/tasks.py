@@ -13,33 +13,18 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pulsequeue.api.dependencies import getRedisClient, getSession
-from pulsequeue.api.schemas import TaskDetailResponse, TaskSubmissionRequest, TaskSubmissionResponse
+from pulsequeue.api.schemas import (
+    TaskDetailResponse,
+    TaskSubmissionRequest,
+    TaskSubmissionResponse,
+    taskRecordToDetailResponse,
+)
 from pulsequeue.core.config import Settings, getSettings
 from pulsequeue.domain.taskTypes import validatePayload
-from pulsequeue.persistence.models import TaskRecord
 from pulsequeue.persistence.repositories import NewTaskInput, TaskRepository
 from pulsequeue.queueing.redisQueue import notifyTaskReady
 
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
-
-
-def _toDetailResponse(record: TaskRecord) -> TaskDetailResponse:
-    return TaskDetailResponse(
-        taskId=record.id,
-        taskType=record.taskType,
-        status=record.status,
-        attemptCount=record.attemptCount,
-        maxAttempts=record.maxAttempts,
-        createdAt=record.createdAt,
-        scheduledAt=record.scheduledAt,
-        startedAt=record.startedAt,
-        completedAt=record.completedAt,
-        updatedAt=record.updatedAt,
-        result=record.result,
-        lastErrorCode=record.lastErrorCode,
-        lastErrorMessage=record.lastErrorMessage,
-        correlationId=record.correlationId,
-    )
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=TaskSubmissionResponse)
@@ -90,4 +75,4 @@ async def getTask(
 ) -> TaskDetailResponse:
     repository = TaskRepository(session)
     record = await repository.getTaskById(taskId)
-    return _toDetailResponse(record)
+    return taskRecordToDetailResponse(record)

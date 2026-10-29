@@ -17,6 +17,7 @@ from pulsequeue.domain.errors import (
     InvalidStateTransitionError,
     PulseQueueError,
     TaskNotFoundError,
+    UnauthorizedError,
     UnsupportedTaskTypeError,
 )
 from pulsequeue.domain.errors import (
@@ -31,6 +32,7 @@ _DOMAIN_ERROR_STATUS: dict[type[PulseQueueError], int] = {
     TaskNotFoundError: status.HTTP_404_NOT_FOUND,
     InvalidStateTransitionError: status.HTTP_409_CONFLICT,
     IdempotencyConflictError: status.HTTP_409_CONFLICT,
+    UnauthorizedError: status.HTTP_401_UNAUTHORIZED,
 }
 
 

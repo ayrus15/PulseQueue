@@ -10,9 +10,13 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
+
+if TYPE_CHECKING:
+    from pulsequeue.persistence.models import TaskRecord
 
 MAX_PAYLOAD_BYTES = 32 * 1024
 """A deliberately small cap: these are demo handlers operating on small
@@ -60,6 +64,29 @@ class TaskDetailResponse(_CamelModel):
     lastErrorCode: str | None
     lastErrorMessage: str | None
     correlationId: str
+
+
+class DeadLetterListResponse(_CamelModel):
+    tasks: list[TaskDetailResponse]
+
+
+def taskRecordToDetailResponse(record: TaskRecord) -> TaskDetailResponse:
+    return TaskDetailResponse(
+        taskId=record.id,
+        taskType=record.taskType,
+        status=record.status,
+        attemptCount=record.attemptCount,
+        maxAttempts=record.maxAttempts,
+        createdAt=record.createdAt,
+        scheduledAt=record.scheduledAt,
+        startedAt=record.startedAt,
+        completedAt=record.completedAt,
+        updatedAt=record.updatedAt,
+        result=record.result,
+        lastErrorCode=record.lastErrorCode,
+        lastErrorMessage=record.lastErrorMessage,
+        correlationId=record.correlationId,
+    )
 
 
 class ErrorDetail(_CamelModel):

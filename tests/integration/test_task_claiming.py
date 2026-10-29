@@ -8,11 +8,12 @@ import asyncio
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from pulsequeue.domain.models import AttemptOutcome, TaskStatus
 from pulsequeue.persistence.database import createSessionFactory
-from pulsequeue.persistence.models import TaskRecord
+from pulsequeue.persistence.models import TaskAttemptRecord, TaskRecord
 from pulsequeue.persistence.repositories import NewTaskInput, TaskAttemptRepository, TaskRepository
 
 
@@ -180,3 +181,82 @@ async def testAttemptNumberMustBeUniquePerTask(dbSession: AsyncSession) -> None:
         await attemptRepository.startAttempt(
             task.id, attemptNumber=1, workerId="worker-2", startedAt=now
         )
+
+
+async def _createDeadLetterTask(dbSession: AsyncSession) -> TaskRecord:
+    repository = TaskRepository(dbSession)
+    task = await _createQueuedTask(dbSession, maxAttempts=1)
+    await repository.claimNextTasks(workerId="worker-1", leaseSeconds=30)
+    await repository.recordFailure(
+        task,
+        errorCode="RuntimeError",
+        errorMessage="boom",
+        failedAt=datetime.now(UTC),
+        isPermanent=False,
+        baseDelaySeconds=1.0,
+        maxDelaySeconds=60.0,
+    )
+    return task
+
+
+async def testListDeadLetterTasksReturnsOnlyDeadLetterTasks(dbSession: AsyncSession) -> None:
+    repository = TaskRepository(dbSession)
+    deadLetterTask = await _createDeadLetterTask(dbSession)
+    await _createQueuedTask(dbSession)  # still queued - must not appear
+
+    deadLetters = await repository.listDeadLetterTasks()
+
+    assert [t.id for t in deadLetters] == [deadLetterTask.id]
+
+
+async def testRequeueDeadLetterTaskResetsAttemptsAndStatus(dbSession: AsyncSession) -> None:
+    repository = TaskRepository(dbSession)
+    task = await _createDeadLetterTask(dbSession)
+    assert task.attemptCount == 1
+
+    requeuedAt = datetime.now(UTC)
+    requeued = await repository.requeueDeadLetterTask(task.id, requeuedAt=requeuedAt)
+
+    assert requeued.status == TaskStatus.QUEUED.value
+    assert requeued.attemptCount == 0
+    assert requeued.scheduledAt == requeuedAt
+
+
+async def testRequeueDeadLetterTaskPreservesAttemptHistory(dbSession: AsyncSession) -> None:
+    task = await _createDeadLetterTask(dbSession)
+    attemptRepository = TaskAttemptRepository(dbSession)
+
+    beforeCount = len(
+        (
+            await dbSession.execute(
+                select(TaskAttemptRecord).where(TaskAttemptRecord.taskId == task.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert beforeCount == 0  # recordFailure alone doesn't write an attempt row
+
+    await attemptRepository.startAttempt(
+        task.id, attemptNumber=1, workerId="worker-1", startedAt=datetime.now(UTC)
+    )
+    await TaskRepository(dbSession).requeueDeadLetterTask(task.id, requeuedAt=datetime.now(UTC))
+
+    afterCount = len(
+        (
+            await dbSession.execute(
+                select(TaskAttemptRecord).where(TaskAttemptRecord.taskId == task.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert afterCount == 1  # untouched by the requeue
+
+
+async def testRequeueingATaskThatIsNotDeadLetterFails(dbSession: AsyncSession) -> None:
+    from pulsequeue.domain.errors import InvalidStateTransitionError
+
+    task = await _createQueuedTask(dbSession)
+    with pytest.raises(InvalidStateTransitionError):
+        await TaskRepository(dbSession).requeueDeadLetterTask(task.id, requeuedAt=datetime.now(UTC))
