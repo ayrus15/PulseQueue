@@ -20,3 +20,13 @@ TERMINAL_STATUSES: frozenset[TaskStatus] = frozenset(
     {TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED}
 )
 """Statuses with no outgoing ordinary transition (dead_letter can still be requeued)."""
+
+
+class AttemptOutcome(StrEnum):
+    """How a single recorded attempt (one row in ``task_attempts``) ended."""
+
+    SUCCEEDED = "succeeded"
+    RETRIED = "retried"
+    FAILED = "failed"
+    DEAD_LETTER = "dead_letter"
+    LEASE_EXPIRED = "lease_expired"

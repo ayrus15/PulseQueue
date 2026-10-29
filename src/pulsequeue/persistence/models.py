@@ -1,8 +1,7 @@
 """SQLAlchemy ORM models. PostgreSQL-only (JSONB, native UUID) - see ADR 0001.
 
-Only the ``tasks`` table exists so far. ``task_attempts`` (Phase 2) and
-``idempotency_records`` (Phase 3) are added in their own migrations when
-the code that writes to them lands, per PROJECT_PLAN.md's phased order.
+``idempotency_records`` (Phase 3) is added in its own migration when the
+code that writes to it lands, per PROJECT_PLAN.md's phased order.
 """
 
 from __future__ import annotations
@@ -10,7 +9,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Index, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -22,9 +21,9 @@ class Base(DeclarativeBase):
 class TaskRecord(Base):
     """A single task: its payload, lifecycle state, and audit timestamps.
 
-    Column choices follow PROJECT_PLAN.md section 9 and ADR 0003 (lease
-    fields support Phase 2's worker claiming; they are unused - always
-    NULL - until then).
+    Column choices follow PROJECT_PLAN.md section 9 and ADR 0003 - the
+    lease fields are set by the worker's claim query in
+    persistence/repositories.py.
     """
 
     __tablename__ = "tasks"
@@ -73,3 +72,39 @@ class TaskRecord(Base):
     )
 
     correlationId: Mapped[str] = mapped_column("correlation_id", String(64), nullable=False)
+
+
+class TaskAttemptRecord(Base):
+    """One row per attempt a worker makes at a task - the audit trail
+    `TaskRecord.attemptCount` alone can't provide (which worker, when,
+    how it ended). See ADR 0003 and PROJECT_PLAN.md section 9.
+    """
+
+    __tablename__ = "task_attempts"
+    __table_args__ = (
+        # Supports GET /api/v1/tasks/{taskId} showing attempt history, and the
+        # recovery poll's "find this task's open attempt" lookup.
+        Index("ix_task_attempts_task_id", "task_id"),
+        UniqueConstraint(
+            "task_id", "attempt_number", name="uq_task_attempts_task_id_attempt_number"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    taskId: Mapped[uuid.UUID] = mapped_column(
+        "task_id", ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False
+    )
+    attemptNumber: Mapped[int] = mapped_column("attempt_number", Integer, nullable=False)
+    workerId: Mapped[str] = mapped_column("worker_id", String(200), nullable=False)
+
+    startedAt: Mapped[datetime] = mapped_column(
+        "started_at", DateTime(timezone=True), nullable=False
+    )
+    endedAt: Mapped[datetime | None] = mapped_column(
+        "ended_at", DateTime(timezone=True), nullable=True
+    )
+
+    outcome: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    errorCode: Mapped[str | None] = mapped_column("error_code", String(100), nullable=True)
+    errorMessage: Mapped[str | None] = mapped_column("error_message", Text, nullable=True)
+    durationMs: Mapped[int | None] = mapped_column("duration_ms", Integer, nullable=True)
