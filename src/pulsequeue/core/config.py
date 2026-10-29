@@ -71,6 +71,12 @@ class Settings(BaseSettings):
         gt=0,
         validation_alias="PULSEQUEUE_RETRY_MAX_DELAY_SECONDS",
     )
+    processFileDirectory: str = Field(
+        default="var/process_file_inbox",
+        validation_alias="PULSEQUEUE_PROCESS_FILE_DIR",
+    )
+    """The only directory the processFile handler may ever read from -
+    ADR 0003's "restrict file processing to a controlled directory"."""
 
     @property
     def allowedOriginsList(self) -> list[str]:
