@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Matches the version this project is developed and tested
+        # against locally (see docs/decisions/0000-acceptance-criteria.md).
+        image: postgres:18
+        env:
+          POSTGRES_USER: pulsequeue
+          POSTGRES_PASSWORD: change-me-ci
+          POSTGRES_DB: pulsequeue_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pulsequeue"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:8
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://pulsequeue:change-me-ci@localhost:5432/pulsequeue_test
+      TEST_DATABASE_URL: postgresql+asyncpg://pulsequeue:change-me-ci@localhost:5432/pulsequeue_test
+      MIGRATIONS_TEST_DATABASE_URL: postgresql+asyncpg://pulsequeue:change-me-ci@localhost:5432/pulsequeue_migrations_test
+      REDIS_URL: redis://localhost:6379/0
+      PGPASSWORD: change-me-ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Create the migrations test database
+        # The postgres service only creates POSTGRES_DB on startup;
+        # tests/integration/test_migrations.py needs a second, separate
+        # database so it can upgrade/downgrade from empty without
+        # touching the one the rest of the suite uses.
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          createdb -h localhost -U pulsequeue pulsequeue_migrations_test
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: Static type check (mypy --strict)
+        run: mypy src
+
+      - name: Build / import validation
+        run: python -c "import pulsequeue.main"
+
+      - name: Run tests with coverage
+        run: pytest --cov=pulsequeue --cov-report=term-missing --cov-report=xml --cov-fail-under=85
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
