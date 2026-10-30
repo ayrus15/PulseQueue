@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pulsequeue.api.dependencies import getSession, requireAdminToken
+from pulsequeue.api.pagination import MAX_PAGE_SIZE
 from pulsequeue.api.schemas import (
     DeadLetterListResponse,
     TaskDetailResponse,
@@ -25,8 +26,6 @@ router = APIRouter(
     tags=["dead-letters"],
     dependencies=[Depends(requireAdminToken)],
 )
-
-MAX_PAGE_SIZE = 100
 
 
 @router.get("", response_model=DeadLetterListResponse)

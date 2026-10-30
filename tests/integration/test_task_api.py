@@ -141,3 +141,83 @@ async def testReusingAnIdempotencyKeyWithADifferentPayloadReturns409(
     )
     assert second.status_code == 409
     assert second.json()["error"]["code"] == "IdempotencyConflictError"
+
+
+async def testListTasksReturnsSubmittedTasks(client: AsyncClient) -> None:
+    submitted = await client.post(
+        "/api/v1/tasks",
+        json={"taskType": "generateReport", "payload": {"reportName": "list-me", "periodDays": 1}},
+    )
+    taskId = submitted.json()["taskId"]
+
+    response = await client.get("/api/v1/tasks")
+    assert response.status_code == 200
+    body = response.json()
+    assert taskId in {task["taskId"] for task in body["tasks"]}
+    assert "nextCursor" in body
+
+
+async def testListTasksRespectsLimitAndReturnsANextCursor(client: AsyncClient) -> None:
+    for i in range(3):
+        await client.post(
+            "/api/v1/tasks",
+            json={"taskType": "generateReport", "payload": {"reportName": str(i), "periodDays": 1}},
+        )
+
+    response = await client.get("/api/v1/tasks", params={"limit": 2})
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["tasks"]) == 2
+    assert body["nextCursor"] is not None
+
+    nextResponse = await client.get(
+        "/api/v1/tasks", params={"limit": 2, "cursor": body["nextCursor"]}
+    )
+    assert nextResponse.status_code == 200
+    firstPageIds = {task["taskId"] for task in body["tasks"]}
+    secondPageIds = {task["taskId"] for task in nextResponse.json()["tasks"]}
+    assert firstPageIds.isdisjoint(secondPageIds)
+
+
+async def testListTasksFiltersByTaskType(client: AsyncClient) -> None:
+    await client.post(
+        "/api/v1/tasks",
+        json={"taskType": "sendNotification", "payload": {"recipientName": "x", "message": "hi"}},
+    )
+
+    response = await client.get("/api/v1/tasks", params={"taskType": "sendNotification"})
+    assert response.status_code == 200
+    assert all(task["taskType"] == "sendNotification" for task in response.json()["tasks"])
+
+
+async def testListTasksRejectsAnUnknownStatusFilter(client: AsyncClient) -> None:
+    response = await client.get("/api/v1/tasks", params={"status": "not-a-real-status"})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "ValidationError"
+
+
+async def testListTasksRejectsAMalformedCursor(client: AsyncClient) -> None:
+    response = await client.get("/api/v1/tasks", params={"cursor": "not-a-valid-cursor!!!"})
+    assert response.status_code == 422
+
+
+async def testCancelQueuedTaskSucceeds(client: AsyncClient) -> None:
+    submitted = await client.post(
+        "/api/v1/tasks",
+        json={
+            "taskType": "generateReport",
+            "payload": {"reportName": "cancel-me", "periodDays": 1},
+        },
+    )
+    taskId = submitted.json()["taskId"]
+
+    response = await client.post(f"/api/v1/tasks/{taskId}/cancel")
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+
+
+async def testCancelUnknownTaskReturns404(client: AsyncClient) -> None:
+    response = await client.post(
+        "/api/v1/tasks/00000000-0000-0000-0000-000000000000/cancel"
+    )
+    assert response.status_code == 404

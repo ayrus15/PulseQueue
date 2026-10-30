@@ -36,6 +36,7 @@ Thumbs.db
 # Docker volumes (local data, never committed)
 postgres_data/
 redis_data/
+dump.rdb
 
 # Benchmark results are environment-specific; keep instructions, not raw output
 benchmarks/results/*

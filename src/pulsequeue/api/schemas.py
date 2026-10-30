@@ -70,6 +70,11 @@ class DeadLetterListResponse(_CamelModel):
     tasks: list[TaskDetailResponse]
 
 
+class TaskListResponse(_CamelModel):
+    tasks: list[TaskDetailResponse]
+    nextCursor: str | None
+
+
 def taskRecordToDetailResponse(record: TaskRecord) -> TaskDetailResponse:
     return TaskDetailResponse(
         taskId=record.id,

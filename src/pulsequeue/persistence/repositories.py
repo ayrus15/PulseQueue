@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
+from sqlalchemy import tuple_ as sa_tuple
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -149,6 +150,45 @@ class TaskRepository:
         if record is None:
             raise TaskNotFoundError(taskId)
         return record
+
+    async def listTasks(
+        self,
+        limit: int,
+        statusFilter: str | None = None,
+        taskTypeFilter: str | None = None,
+        afterCursor: tuple[datetime, uuid.UUID] | None = None,
+    ) -> list[TaskRecord]:
+        """Deterministically ordered (``created_at``, ``id`` - matching
+        ``ix_tasks_created_at_id``), so new inserts never shift a page
+        already handed out (FR3). Pass ``limit + 1`` and check for the
+        extra row to know whether another page exists - this method
+        itself just returns what's asked for.
+        """
+        statement = select(TaskRecord).order_by(TaskRecord.createdAt, TaskRecord.id).limit(limit)
+        if statusFilter is not None:
+            statement = statement.where(TaskRecord.status == statusFilter)
+        if taskTypeFilter is not None:
+            statement = statement.where(TaskRecord.taskType == taskTypeFilter)
+        if afterCursor is not None:
+            cursorCreatedAt, cursorId = afterCursor
+            statement = statement.where(
+                sa_tuple(TaskRecord.createdAt, TaskRecord.id) > (cursorCreatedAt, cursorId)
+            )
+        return list((await self._session.execute(statement)).scalars().all())
+
+    async def cancelTask(self, taskId: uuid.UUID, cancelledAt: datetime) -> TaskRecord:
+        """Cancels a task that hasn't started yet (FR4). A task that's
+        already ``running`` or otherwise past ``queued`` can't be
+        cancelled here - applyTransition raises InvalidStateTransitionError
+        (-> 409), since cancelling in-flight work would require the
+        worker's cooperation, which doesn't exist yet.
+        """
+        task = await self.getTaskById(taskId)
+        task.status = applyTransition(TaskStatus(task.status), TaskEvent.CANCEL_ACCEPTED)
+        task.completedAt = cancelledAt
+        task.updatedAt = cancelledAt
+        await self._session.commit()
+        return task
 
     async def listDeadLetterTasks(self, limit: int = 50) -> list[TaskRecord]:
         """Most-recently-dead-lettered first. A basic listing - stable,
