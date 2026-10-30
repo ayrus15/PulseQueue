@@ -217,9 +217,7 @@ async def testCancelQueuedTaskSucceeds(client: AsyncClient) -> None:
 
 
 async def testCancelUnknownTaskReturns404(client: AsyncClient) -> None:
-    response = await client.post(
-        "/api/v1/tasks/00000000-0000-0000-0000-000000000000/cancel"
-    )
+    response = await client.post("/api/v1/tasks/00000000-0000-0000-0000-000000000000/cancel")
     assert response.status_code == 404
 
 

@@ -29,9 +29,13 @@ ALLOWED_TRANSITIONS: dict[tuple[TaskStatus, TaskEvent], TaskStatus] = {
 }
 
 
-@pytest.mark.parametrize(("fromStatus", "event", "toStatus"), [
-    (fromStatus, event, toStatus) for (fromStatus, event), toStatus in ALLOWED_TRANSITIONS.items()
-])
+@pytest.mark.parametrize(
+    ("fromStatus", "event", "toStatus"),
+    [
+        (fromStatus, event, toStatus)
+        for (fromStatus, event), toStatus in ALLOWED_TRANSITIONS.items()
+    ],
+)
 def testAllowedTransitionsSucceed(
     fromStatus: TaskStatus, event: TaskEvent, toStatus: TaskStatus
 ) -> None:
@@ -41,11 +45,7 @@ def testAllowedTransitionsSucceed(
 
 @pytest.mark.parametrize(
     ("fromStatus", "event"),
-    [
-        pair
-        for pair in itertools.product(TaskStatus, TaskEvent)
-        if pair not in ALLOWED_TRANSITIONS
-    ],
+    [pair for pair in itertools.product(TaskStatus, TaskEvent) if pair not in ALLOWED_TRANSITIONS],
 )
 def testDisallowedTransitionsRaise(fromStatus: TaskStatus, event: TaskEvent) -> None:
     assert isAllowedTransition(fromStatus, event) is False

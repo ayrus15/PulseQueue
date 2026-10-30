@@ -116,9 +116,7 @@ class IdempotencyRecord(Base):
 
     __tablename__ = "idempotency_records"
     __table_args__ = (
-        UniqueConstraint(
-            "scope", "idempotency_key", name="uq_idempotency_records_scope_key"
-        ),
+        UniqueConstraint("scope", "idempotency_key", name="uq_idempotency_records_scope_key"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

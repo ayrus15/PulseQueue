@@ -32,9 +32,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(["task_id"], ["tasks.id"], ondelete="CASCADE"),
-        sa.UniqueConstraint(
-            "scope", "idempotency_key", name="uq_idempotency_records_scope_key"
-        ),
+        sa.UniqueConstraint("scope", "idempotency_key", name="uq_idempotency_records_scope_key"),
     )
 
 

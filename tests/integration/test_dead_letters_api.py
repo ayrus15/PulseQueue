@@ -66,9 +66,7 @@ async def testListDeadLettersWithoutTokenReturns401(client: AsyncClient) -> None
 
 
 async def testListDeadLettersWithWrongTokenReturns401(client: AsyncClient) -> None:
-    response = await client.get(
-        "/api/v1/dead-letters", headers={"X-Admin-Token": "wrong-token"}
-    )
+    response = await client.get("/api/v1/dead-letters", headers={"X-Admin-Token": "wrong-token"})
     assert response.status_code == 401
 
 
@@ -86,9 +84,7 @@ async def testListDeadLettersWithValidTokenReturnsTheTask(
 async def testRequeueDeadLetterReturnsItToQueued(client: AsyncClient, engine: AsyncEngine) -> None:
     taskId = await _createDeadLetterTaskViaRepository(engine)
 
-    response = await client.post(
-        f"/api/v1/dead-letters/{taskId}/requeue", headers=ADMIN_HEADERS
-    )
+    response = await client.post(f"/api/v1/dead-letters/{taskId}/requeue", headers=ADMIN_HEADERS)
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "queued"
@@ -117,7 +113,5 @@ async def testRequeueingATaskThatIsNotDeadLetterReturns409(
             )
         )
 
-    response = await client.post(
-        f"/api/v1/dead-letters/{task.id}/requeue", headers=ADMIN_HEADERS
-    )
+    response = await client.post(f"/api/v1/dead-letters/{task.id}/requeue", headers=ADMIN_HEADERS)
     assert response.status_code == 409
