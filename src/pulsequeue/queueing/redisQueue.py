@@ -17,6 +17,11 @@ from redis.asyncio import Redis
 logger = logging.getLogger(__name__)
 
 WAKE_KEY = "pulsequeue:wake"
+HEARTBEAT_KEY_PREFIX = "pulsequeue:heartbeat:"
+HEARTBEAT_TTL_SECONDS = 30
+"""Each heartbeat key expires on its own - a crashed worker's gauge
+simply disappears from /metrics rather than showing a stale "alive"
+value forever."""
 
 
 def createRedisClient(redisUrl: str) -> Redis:
@@ -35,6 +40,19 @@ async def notifyTaskReady(redisClient: Redis) -> None:
         await redisClient.rpush(WAKE_KEY, "1")  # type: ignore[misc]
     except Exception:
         logger.warning("Failed to publish task-ready notification to Redis", exc_info=True)
+
+
+async def recordHeartbeat(redisClient: Redis, workerId: str, nowEpochSeconds: float) -> None:
+    """Best-effort - never raises. A missed heartbeat just means the
+    worker's gauge goes stale/missing in /metrics; it has no effect on
+    correctness (ADR 0002).
+    """
+    try:
+        await redisClient.set(
+            f"{HEARTBEAT_KEY_PREFIX}{workerId}", str(nowEpochSeconds), ex=HEARTBEAT_TTL_SECONDS
+        )
+    except Exception:
+        logger.warning("Failed to record worker heartbeat in Redis", exc_info=True)
 
 
 async def waitForNotification(redisClient: Redis, timeoutSeconds: float) -> bool:

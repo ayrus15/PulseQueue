@@ -29,7 +29,7 @@ from pulsequeue.domain.taskTypes import validatePayload
 from pulsequeue.persistence.database import createEngine, createSessionFactory
 from pulsequeue.persistence.models import TaskAttemptRecord, TaskRecord
 from pulsequeue.persistence.repositories import TaskAttemptRepository, TaskRepository
-from pulsequeue.queueing.redisQueue import createRedisClient, waitForNotification
+from pulsequeue.queueing.redisQueue import createRedisClient, recordHeartbeat, waitForNotification
 from pulsequeue.recovery.leaseRecovery import recoverExpiredLeases
 from pulsequeue.workers.registry import HandlerFunc, buildHandlerRegistry, getHandler
 
@@ -79,10 +79,22 @@ class Worker:
         try:
             await asyncio.gather(
                 self._recoveryLoop(),
+                self._heartbeatLoop(),
                 *(self._loop(slot) for slot in range(self._concurrency)),
             )
         finally:
             logger.info("Worker stopped", extra={"worker_id": self._workerId})
+
+    async def _heartbeatLoop(self) -> None:
+        """Keeps PULSEQUEUE_WORKER_HEARTBEAT_AGE_SECONDS fresh in Redis for
+        this worker (ADR 0002 - best-effort, never raises). A worker that
+        stops heartbeating simply ages out of /metrics after
+        HEARTBEAT_TTL_SECONDS, rather than showing a stale "alive" gauge.
+        """
+        while not self._stopping.is_set():
+            await recordHeartbeat(self._redisClient, self._workerId, datetime.now(UTC).timestamp())
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._stopping.wait(), timeout=self._pollIntervalSeconds)
 
     async def _recoveryLoop(self) -> None:
         while not self._stopping.is_set():
