@@ -1,17 +1,20 @@
 # PulseQueue
 
+[![CI](https://github.com/ayrus15/PulseQueue/actions/workflows/ci.yml/badge.svg)](https://github.com/ayrus15/PulseQueue/actions/workflows/ci.yml)
+
 A distributed task processing and reliability platform: clients submit
 tasks over HTTP, PostgreSQL durably records them, and independent
 worker processes execute them concurrently with bounded retries,
 idempotent submission, and crash recovery.
 
-**Status: Phase 4 done — task listing with stable cursor pagination
-and filtering, cancellation, request correlation IDs, and a basic
-(off-by-default) rate limit round out the API; all of Phase 1-4 is
-tested (179 tests) against real PostgreSQL 18 and Redis 8. GitHub
-Actions CI (Phase 5) and everything after do not exist yet.** The
-table at the bottom of this file tracks implementation status phase by
-phase and will be kept honest as work lands; nothing here should be read as
+**Status: Phase 5 done — GitHub Actions CI runs lint, format check,
+mypy --strict, an import sanity check, and the full test suite
+(182 tests, 91.64% coverage) against real `postgres:18`/`redis:8`
+service containers on every push - confirmed passing on GitHub's own
+runners, not just claimed. Phase 6 (health checks, metrics, structured
+log review) and everything after do not exist yet.** The table at the
+bottom of this file tracks implementation status phase by phase and
+will be kept honest as work lands; nothing here should be read as
 "working" until its row says so.
 
 ## Why this exists
@@ -143,15 +146,18 @@ optionally Redis (the worker degrades gracefully without it).
 pytest tests/unit          # no database required
 pytest tests/integration   # requires PostgreSQL - see below
 pytest                      # both
+pytest --cov=pulsequeue --cov-report=term-missing   # with coverage, like CI
 ```
 
 Integration tests need a real PostgreSQL database and **skip cleanly**
 (not fail) if one isn't reachable, printing the exact command to set one
-up. Verified against a real local PostgreSQL 18 + Redis 8 (151 tests,
-0 failures - unit, API integration, task claiming/concurrency,
-idempotency (including a real concurrent-duplicate-submission test),
-worker end-to-end, lease recovery, dead-letter admin, and an actual
-Alembic upgrade-from-empty/downgrade cycle):
+up. Verified against a real local PostgreSQL 18 + Redis 8, and
+confirmed again on GitHub's own runners via CI (182 tests, 91.64%
+coverage, 0 failures - unit, API integration, task claiming/concurrency
+(including a real cancel-vs-claim race and a real concurrent-duplicate-
+idempotency-submission test), worker end-to-end, lease recovery,
+dead-letter admin, a Redis-unreachable-after-commit fault injection,
+and an actual Alembic upgrade-from-empty/downgrade cycle):
 
 ```bash
 # One-time setup (run as a Postgres superuser):
@@ -162,6 +168,16 @@ set TEST_DATABASE_URL=postgresql+asyncpg://pulsequeue:change-me-locally@localhos
 set MIGRATIONS_TEST_DATABASE_URL=postgresql+asyncpg://pulsequeue:change-me-locally@localhost:5432/pulsequeue_migrations_test
 pytest
 ```
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every
+push to `main` and every pull request: `ruff check`, `ruff format
+--check`, `mypy --strict`, an import sanity check, then the full test
+suite with coverage against real `postgres:18`/`redis:8` service
+containers (`--cov-fail-under=85`, comfortably below the 91.64% this
+suite actually measures). Coverage XML is uploaded as a build
+artifact. See the badge at the top of this file for current status.
 
 ## API
 
@@ -228,7 +244,6 @@ they are measured.
   had stopped. In a real deployment this is Docker Compose's job
   (Phase 9) or a proper service; noted here as an actual limitation
   observed, not a hypothetical one.
-- No CI pipeline exists yet (Phase 5).
 - No benchmark results exist yet (Phase 7) — none will be claimed until
   measured and committed with their exact configuration.
 
@@ -240,8 +255,8 @@ they are measured.
 | 1 | API, domain model, PostgreSQL persistence, migrations, tests | Done |
 | 2 | Redis integration, worker execution, task claiming | Done |
 | 3 | Idempotency, retries, leases, dead-letter handling, recovery | Done |
-| 4 | Pagination, filtering, cancellation, API quality | Done — 179/179 tests pass against real PostgreSQL 18 and real Redis 8 |
-| 5 | Comprehensive tests and GitHub Actions CI | Not started |
+| 4 | Pagination, filtering, cancellation, API quality | Done |
+| 5 | Comprehensive tests and GitHub Actions CI | Done — 182/182 tests, 91.64% coverage, confirmed green on GitHub's own runners (badge above) |
 | 6 | Health checks, metrics, structured logs, runbook | Not started |
 | 7 | Load testing, profiling, benchmark report | Not started |
 | 8 | Security hardening and threat model | Not started |
