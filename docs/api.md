@@ -1,12 +1,14 @@
 # API documentation
 
-**Status: Phase 3 — task submission/retrieval and dead-letter
-administration exist.** Listing with pagination/filtering and
-cancellation are Phase 4; `/health/*` / `/metrics` are Phase 6.
-Examples below are drawn directly from the integration tests, not
-hand-written.
+**Status: Phase 4 — task submission/retrieval/listing/cancellation and
+dead-letter administration all exist.** `/health/*` / `/metrics` are
+Phase 6. Examples below are drawn directly from the integration tests,
+not hand-written.
 
-All endpoints are under `/api/v1`. Errors always have the shape:
+All endpoints are under `/api/v1`. Every response, success or error,
+carries an `X-Correlation-Id` header (the client's own, if it sent a
+sane one via that same header; otherwise a generated UUID - see
+`api/middleware.py`). Errors always have the shape:
 
 ```json
 {"error": {"code": "TaskNotFoundError", "message": "Task not found: ..."}}
@@ -14,8 +16,9 @@ All endpoints are under `/api/v1`. Errors always have the shape:
 
 `code` is the raising exception's class name for domain errors
 (`UnsupportedTaskTypeError`, `TaskNotFoundError`, `IdempotencyConflictError`,
-`UnauthorizedError`, ...), or `RequestValidationError` / `ValidationError`
-for malformed requests and payloads that fail their task type's schema,
+`UnauthorizedError`, `RateLimitExceededError`, ...), or
+`RequestValidationError` / `ValidationError` for malformed requests,
+unknown filter values, or payloads that fail their task type's schema,
 or `InternalServerError` for anything unexpected (never a raw stack trace).
 
 ## `POST /api/v1/tasks`
@@ -44,6 +47,14 @@ retries safe (ADR 0004):
   with the *original* task (no new task created).
 - Same key + a different request → `409 Conflict`, `IdempotencyConflictError`.
 
+An optional `X-Correlation-Id` header becomes the created task's
+`correlationId` (see `GET /api/v1/tasks/{taskId}` below) - useful for
+tracing a task back to the request and logs that created it.
+
+If `PULSEQUEUE_RATE_LIMIT_ENABLED=true` (off by default - see
+`api/rateLimit.py`), exceeding `PULSEQUEUE_RATE_LIMIT_PER_MINUTE`
+requests per client IP returns `429`, `RateLimitExceededError`.
+
 Response (`201 Created`, or `200 OK` for a repeated idempotency key):
 
 ```json
@@ -62,6 +73,27 @@ Failure modes exercised by tests:
   `RequestValidationError`.
 - `payload` serializes to more than 32 KiB → `422`.
 - Idempotency key reused with a different request → `409`.
+- Rate limit exceeded (only if enabled) → `429`.
+
+## `GET /api/v1/tasks`
+
+Query parameters, all optional:
+
+| Parameter | Meaning |
+|---|---|
+| `limit` | Max results (default 50, max 100) |
+| `status` | One of `queued`/`running`/`succeeded`/`failed`/`cancelled`/`dead_letter` |
+| `taskType` | One of the five registered task types |
+| `cursor` | Opaque value from a previous response's `nextCursor` |
+
+```json
+{"tasks": [ /* TaskDetailResponse objects, see below */ ], "nextCursor": "b64-opaque-string-or-null"}
+```
+
+Ordered by `(createdAt, id)` ascending - deterministic and stable: new
+inserts never shift a page already handed out (FR3). Pass `nextCursor`
+back as `cursor` to get the next page; `null` means there isn't one.
+An unknown `status`/`taskType` value or a malformed `cursor` → `422`.
 
 ## `GET /api/v1/tasks/{taskId}`
 
@@ -88,9 +120,19 @@ Response (`200 OK`):
 
 - Unknown or malformed `taskId` → `404` (`TaskNotFoundError`) if it's a
   valid UUID that doesn't exist, `422` if it isn't a valid UUID at all.
-- `status` can now be any of `queued`, `running`, `succeeded`, `failed`,
-  `dead_letter` once a worker (Phase 2) has processed it; `cancelled`
-  isn't reachable yet (Phase 4).
+- `status` can be any of `queued`, `running`, `succeeded`, `failed`,
+  `cancelled`, `dead_letter`.
+
+## `POST /api/v1/tasks/{taskId}/cancel`
+
+Cancels a task that hasn't started yet. Response (`200 OK`): the
+task's `TaskDetailResponse`, with `status: "cancelled"`.
+
+- A task that's already `running` or otherwise past `queued` → `409`,
+  `InvalidStateTransitionError` - cancelling in-flight work isn't
+  supported (it would need the worker's cooperation, which doesn't
+  exist yet; see PROJECT_PLAN.md's cancellation design note).
+- Unknown `taskId` → `404`.
 
 ## `GET /api/v1/dead-letters`
 
@@ -102,8 +144,9 @@ Without it, or with the wrong value: `401`, `UnauthorizedError`.
 {"tasks": [ /* TaskDetailResponse objects, newest-dead-lettered first */ ]}
 ```
 
-Optional `?limit=N` (default 50, max 100). Full filtering/pagination
-across all statuses is Phase 4.
+Optional `?limit=N` (default 50, max 100) - a basic listing; full
+filtering/pagination like `GET /api/v1/tasks` isn't implemented for
+this endpoint.
 
 ## `POST /api/v1/dead-letters/{taskId}/requeue`
 

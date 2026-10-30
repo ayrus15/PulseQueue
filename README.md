@@ -5,14 +5,13 @@ tasks over HTTP, PostgreSQL durably records them, and independent
 worker processes execute them concurrently with bounded retries,
 idempotent submission, and crash recovery.
 
-**Status: Phase 3 done — idempotent submission, bounded exponential
-backoff with jitter, permanent-vs-retryable error classification,
-worker lease-expiry recovery, and admin-protected dead-letter
-inspection/requeue all exist and are tested (151 tests) against real
-PostgreSQL 18 and Redis 8. Pagination/filtering/cancellation (Phase 4)
-and everything after do not exist yet.** The table at the bottom of
-this file tracks implementation status phase by phase and will be kept
-honest as work lands; nothing here should be read as
+**Status: Phase 4 done — task listing with stable cursor pagination
+and filtering, cancellation, request correlation IDs, and a basic
+(off-by-default) rate limit round out the API; all of Phase 1-4 is
+tested (179 tests) against real PostgreSQL 18 and Redis 8. GitHub
+Actions CI (Phase 5) and everything after do not exist yet.** The
+table at the bottom of this file tracks implementation status phase by
+phase and will be kept honest as work lands; nothing here should be read as
 "working" until its row says so.
 
 ## Why this exists
@@ -167,11 +166,15 @@ pytest
 ## API
 
 `POST /api/v1/tasks` (with optional `Idempotency-Key` support),
-`GET /api/v1/tasks/{taskId}`, `GET /api/v1/dead-letters`, and
-`POST /api/v1/dead-letters/{taskId}/requeue` (the last two admin-token
-protected) are implemented. Listing with pagination/filtering and
-cancellation are Phase 4. See [`docs/api.md`](docs/api.md) and the full
-target contract in [`PROJECT_PLAN.md`](PROJECT_PLAN.md) section 7.
+`GET /api/v1/tasks` (cursor-paginated, filterable by `status`/`taskType`),
+`GET /api/v1/tasks/{taskId}`, `POST /api/v1/tasks/{taskId}/cancel`,
+`GET /api/v1/dead-letters`, and `POST /api/v1/dead-letters/{taskId}/requeue`
+(the last two admin-token protected) are all implemented. Every
+response carries an `X-Correlation-Id` header (FR4), and
+`POST /api/v1/tasks` can optionally be rate limited per client IP
+(`PULSEQUEUE_RATE_LIMIT_ENABLED`, off by default - fails open if Redis
+is unreachable). See [`docs/api.md`](docs/api.md) and the full target
+contract in [`PROJECT_PLAN.md`](PROJECT_PLAN.md) section 7.
 
 ## Worker
 
@@ -219,8 +222,12 @@ they are measured.
   intended.
 - Idempotency keys share one constant scope (not per-client) until real
   authentication exists - see docs/threatModel.md.
-- Pagination/filtering for `GET /api/v1/tasks` (there is no such
-  endpoint yet) and cancellation do not exist yet (Phase 4).
+- `redis-server.exe` here is a bare process, not a registered Windows
+  service - it doesn't survive a reboot or even always stay up across
+  this machine's sessions, and had to be restarted mid-Phase-4 after it
+  had stopped. In a real deployment this is Docker Compose's job
+  (Phase 9) or a proper service; noted here as an actual limitation
+  observed, not a hypothetical one.
 - No CI pipeline exists yet (Phase 5).
 - No benchmark results exist yet (Phase 7) — none will be claimed until
   measured and committed with their exact configuration.
@@ -232,8 +239,8 @@ they are measured.
 | 0 | Architecture, ADRs, repo/environment setup | Done |
 | 1 | API, domain model, PostgreSQL persistence, migrations, tests | Done |
 | 2 | Redis integration, worker execution, task claiming | Done |
-| 3 | Idempotency, retries, leases, dead-letter handling, recovery | Done — 151/151 tests pass against real PostgreSQL 18 and real Redis 8, including a genuine concurrent-duplicate-submission test and a simulated-dead-worker lease recovery test |
-| 4 | Pagination, filtering, cancellation, API quality | Not started |
+| 3 | Idempotency, retries, leases, dead-letter handling, recovery | Done |
+| 4 | Pagination, filtering, cancellation, API quality | Done — 179/179 tests pass against real PostgreSQL 18 and real Redis 8 |
 | 5 | Comprehensive tests and GitHub Actions CI | Not started |
 | 6 | Health checks, metrics, structured logs, runbook | Not started |
 | 7 | Load testing, profiling, benchmark report | Not started |
