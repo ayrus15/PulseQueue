@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy import tuple_ as sa_tuple
+from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -179,16 +180,46 @@ class TaskRepository:
     async def cancelTask(self, taskId: uuid.UUID, cancelledAt: datetime) -> TaskRecord:
         """Cancels a task that hasn't started yet (FR4). A task that's
         already ``running`` or otherwise past ``queued`` can't be
-        cancelled here - applyTransition raises InvalidStateTransitionError
-        (-> 409), since cancelling in-flight work would require the
-        worker's cooperation, which doesn't exist yet.
+        cancelled here - since cancelling in-flight work would require
+        the worker's cooperation, which doesn't exist yet.
+
+        This is a conditional ``UPDATE ... WHERE status = 'queued'``, not
+        a read-then-write - a worker's ``claimNextTasks`` can race this
+        call for the same row, and whichever one's UPDATE actually
+        commits first is the one that wins; the loser's WHERE clause
+        simply matches nothing. A plain "fetch, check in Python, write
+        back" would have a real TOCTOU gap here (caught by
+        testCancelRacingWithClaimNeverCancelsAClaimedTask).
         """
-        task = await self.getTaskById(taskId)
-        task.status = applyTransition(TaskStatus(task.status), TaskEvent.CANCEL_ACCEPTED)
-        task.completedAt = cancelledAt
-        task.updatedAt = cancelledAt
+        statement = (
+            sa_update(TaskRecord)
+            .where(TaskRecord.id == taskId)
+            .where(TaskRecord.status == TaskStatus.QUEUED.value)
+            .values(
+                status=TaskStatus.CANCELLED.value, completedAt=cancelledAt, updatedAt=cancelledAt
+            )
+            .returning(TaskRecord.id)
+        )
+        result = await self._session.execute(statement)
+        cancelledId = result.scalar_one_or_none()
         await self._session.commit()
-        return task
+        # This is a Core-style UPDATE, so a `task` object already in this
+        # session's identity map won't have picked up its new attribute
+        # values on its own (synchronize_session's column-name matching
+        # turned out not to be reliable across Python/SQL name
+        # differences like completedAt/completed_at) - expire everything
+        # so the getTaskById() below does a real SELECT instead of
+        # returning stale in-memory state.
+        self._session.expire_all()
+
+        if cancelledId is None:
+            # Either it doesn't exist (raises TaskNotFoundError) or it's no
+            # longer queued - let the state machine produce the right error.
+            task = await self.getTaskById(taskId)
+            applyTransition(TaskStatus(task.status), TaskEvent.CANCEL_ACCEPTED)
+            raise AssertionError("unreachable: applyTransition above must raise")
+
+        return await self.getTaskById(taskId)
 
     async def listDeadLetterTasks(self, limit: int = 50) -> list[TaskRecord]:
         """Most-recently-dead-lettered first. A basic listing - stable,

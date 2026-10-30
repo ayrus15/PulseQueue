@@ -4,13 +4,15 @@ and cancelTask, against real PostgreSQL.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from pulsequeue.domain.errors import InvalidStateTransitionError
 from pulsequeue.domain.models import TaskStatus
+from pulsequeue.persistence.database import createSessionFactory
 from pulsequeue.persistence.repositories import NewTaskInput, TaskRepository
 
 
@@ -116,3 +118,68 @@ async def testCancelTaskRejectsATaskThatIsAlreadyRunning(dbSession: AsyncSession
 
     with pytest.raises(InvalidStateTransitionError):
         await repository.cancelTask(task.id, cancelledAt=datetime.now(UTC))
+
+
+async def testCancelRacingWithClaimNeverCancelsAClaimedTask(
+    dbSession: AsyncSession, engine: AsyncEngine
+) -> None:
+    """A real race between cancelTask and claimNextTasks for the same
+    row: exactly one of them must win. Before cancelTask became a
+    conditional UPDATE (not a read-then-write), this could corrupt a
+    task that a worker had already started running back to `cancelled`.
+    """
+    task = await _createTask(dbSession)
+    sessionFactory = createSessionFactory(engine)
+
+    async def tryCancel() -> bool:
+        async with sessionFactory() as session:
+            try:
+                await TaskRepository(session).cancelTask(task.id, cancelledAt=datetime.now(UTC))
+                return True
+            except InvalidStateTransitionError:
+                return False
+
+    async def tryClaim() -> bool:
+        async with sessionFactory() as session:
+            claimed = await TaskRepository(session).claimNextTasks(
+                workerId="racer", leaseSeconds=30
+            )
+            return len(claimed) == 1
+
+    cancelled, claimed = await asyncio.gather(tryCancel(), tryClaim())
+
+    # Both attempts ran; whichever committed first determines the final
+    # state, but they can never both have "won".
+    assert cancelled != claimed or not (cancelled and claimed)
+
+    async with sessionFactory() as session:
+        finalTask = await TaskRepository(session).getTaskById(task.id)
+    if cancelled:
+        assert finalTask.status == TaskStatus.CANCELLED.value
+    else:
+        assert claimed
+        assert finalTask.status == TaskStatus.RUNNING.value
+
+
+async def testListTasksPaginationIsStableWhileNewTasksAreCreated(
+    dbSession: AsyncSession,
+) -> None:
+    """FR3: new inserts must never shift a page already handed out."""
+    repository = TaskRepository(dbSession)
+    firstPageTasks = [await _createTask(dbSession, reportName=f"page1-{i}") for i in range(2)]
+    thirdTask = await _createTask(dbSession, reportName="page2-original")
+
+    firstPage = await repository.listTasks(limit=2)
+    assert {t.id for t in firstPage} == {t.id for t in firstPageTasks}
+    cursor = (firstPage[-1].createdAt, firstPage[-1].id)
+
+    # Simulate new submissions arriving after the first page was handed out.
+    newTasks = [await _createTask(dbSession, reportName=f"new-{i}") for i in range(3)]
+
+    secondPage = await repository.listTasks(limit=50, afterCursor=cursor)
+    secondPageIds = {t.id for t in secondPage}
+
+    assert thirdTask.id in secondPageIds
+    assert secondPageIds.isdisjoint({t.id for t in firstPageTasks})
+    for newTask in newTasks:
+        assert newTask.id in secondPageIds
