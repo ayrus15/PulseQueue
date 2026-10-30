@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from pulsequeue.api.errorHandlers import registerErrorHandlers
+from pulsequeue.api.middleware import registerCorrelationIdMiddleware
 from pulsequeue.api.routes.deadLetters import router as deadLettersRouter
 from pulsequeue.api.routes.tasks import router as tasksRouter
 from pulsequeue.core.config import getSettings
@@ -44,6 +45,7 @@ def createApp() -> FastAPI:
         )
 
     registerErrorHandlers(app)
+    registerCorrelationIdMiddleware(app)
     app.include_router(tasksRouter)
     app.include_router(deadLettersRouter)
     return app

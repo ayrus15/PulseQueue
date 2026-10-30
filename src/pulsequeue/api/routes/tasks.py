@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Header, Query, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +33,7 @@ router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=TaskSubmissionResponse)
 async def submitTask(
     submission: TaskSubmissionRequest,
+    request: Request,
     response: Response,
     session: AsyncSession = Depends(getSession),
     settings: Settings = Depends(getSettings),
@@ -48,7 +49,10 @@ async def submitTask(
         taskType=submission.taskType,
         payload=submission.payload,
         maxAttempts=submission.maxAttempts or settings.defaultMaxAttempts,
-        correlationId=str(uuid.uuid4()),
+        # The request's correlation ID (client-supplied via X-Correlation-Id,
+        # or generated - see api/middleware.py) ties this task's own logs
+        # back to the request that created it.
+        correlationId=request.state.correlationId,
     )
 
     if idempotencyKey is None:

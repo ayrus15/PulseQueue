@@ -221,3 +221,36 @@ async def testCancelUnknownTaskReturns404(client: AsyncClient) -> None:
         "/api/v1/tasks/00000000-0000-0000-0000-000000000000/cancel"
     )
     assert response.status_code == 404
+
+
+async def testResponseEchoesAGeneratedCorrelationIdWhenNoneIsSent(client: AsyncClient) -> None:
+    response = await client.get("/api/v1/tasks")
+    assert response.status_code == 200
+    assert response.headers["X-Correlation-Id"]  # present and non-empty
+
+
+async def testResponseEchoesTheClientsOwnCorrelationId(client: AsyncClient) -> None:
+    response = await client.get("/api/v1/tasks", headers={"X-Correlation-Id": "my-trace-id-123"})
+    assert response.headers["X-Correlation-Id"] == "my-trace-id-123"
+
+
+async def testSubmittedTaskGetsTheRequestsCorrelationId(client: AsyncClient) -> None:
+    response = await client.post(
+        "/api/v1/tasks",
+        json={"taskType": "generateReport", "payload": {"reportName": "x", "periodDays": 1}},
+        headers={"X-Correlation-Id": "trace-abc"},
+    )
+    taskId = response.json()["taskId"]
+
+    detail = await client.get(f"/api/v1/tasks/{taskId}")
+    assert detail.json()["correlationId"] == "trace-abc"
+
+
+async def testAnInvalidCorrelationIdHeaderIsReplacedWithAGeneratedOne(
+    client: AsyncClient,
+) -> None:
+    response = await client.get(
+        "/api/v1/tasks", headers={"X-Correlation-Id": "has spaces/and$symbols!"}
+    )
+    assert response.headers["X-Correlation-Id"] != "has spaces/and$symbols!"
+    assert response.headers["X-Correlation-Id"]
