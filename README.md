@@ -7,15 +7,14 @@ tasks over HTTP, PostgreSQL durably records them, and independent
 worker processes execute them concurrently with bounded retries,
 idempotent submission, and crash recovery.
 
-**Status: Phase 5 done — GitHub Actions CI runs lint, format check,
-mypy --strict, an import sanity check, and the full test suite
-(182 tests, 91.64% coverage) against real `postgres:18`/`redis:8`
-service containers on every push - confirmed passing on GitHub's own
-runners, not just claimed. Phase 6 (health checks, metrics, structured
-log review) and everything after do not exist yet.** The table at the
-bottom of this file tracks implementation status phase by phase and
-will be kept honest as work lands; nothing here should be read as
-"working" until its row says so.
+**Status: Phase 6 done — `/health/live`, `/health/ready`, and a real
+`/metrics` (Prometheus, with genuine histograms built from live
+PostgreSQL data, not estimates) exist, plus a written operations
+runbook. 198 tests pass (91% coverage), confirmed on GitHub Actions'
+own runners. Phase 7 (load testing/benchmarking) and everything after
+do not exist yet.** The table at the bottom of this file tracks
+implementation status phase by phase and will be kept honest as work
+lands; nothing here should be read as "working" until its row says so.
 
 ## Why this exists
 
@@ -208,9 +207,19 @@ ordinary retryable error goes to `dead_letter`.
 
 ## Monitoring
 
-Not yet implemented. Phase 6 adds `/metrics`, `/health/live`, and
-`/health/ready`; see [`docs/operationsRunbook.md`](docs/operationsRunbook.md)
-(currently a placeholder).
+`GET /health/live` (process up, no dependency checks) and
+`GET /health/ready` (PostgreSQL + Redis; only PostgreSQL's outage fails
+readiness - ADR 0001/0002) are implemented. `GET /metrics` exposes
+Prometheus-format task/queue counts and queue depth (computed fresh
+from PostgreSQL on every scrape, not accumulated in-process - correct
+across restarts and multiple instances), API request count/duration,
+worker heartbeat age (via Redis), and genuine histograms for task
+execution time and queue wait time built from real data. See
+[`docs/operationsRunbook.md`](docs/operationsRunbook.md) for how to
+read all of it, written against the actual implementation. No
+Grafana/Prometheus server is set up here - nothing to screenshot
+honestly - but any standard Prometheus scrape config pointed at
+`/metrics` works as-is.
 
 ## Benchmarks
 
@@ -256,8 +265,8 @@ they are measured.
 | 2 | Redis integration, worker execution, task claiming | Done |
 | 3 | Idempotency, retries, leases, dead-letter handling, recovery | Done |
 | 4 | Pagination, filtering, cancellation, API quality | Done |
-| 5 | Comprehensive tests and GitHub Actions CI | Done — 182/182 tests, 91.64% coverage, confirmed green on GitHub's own runners (badge above) |
-| 6 | Health checks, metrics, structured logs, runbook | Not started |
+| 5 | Comprehensive tests and GitHub Actions CI | Done — confirmed green on GitHub's own runners (badge above) |
+| 6 | Health checks, metrics, structured logs, runbook | Done — 198/198 tests, 91% coverage; a live smoke test caught and fixed a real negative-duration bug in the queue-wait histogram before it shipped |
 | 7 | Load testing, profiling, benchmark report | Not started |
 | 8 | Security hardening and threat model | Not started |
 | 9 | Packaging, documentation, demo, final review | Not started |

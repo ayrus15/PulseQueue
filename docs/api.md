@@ -156,3 +156,9 @@ is never deleted. Requeuing a task that isn't currently `dead_letter`
 → `409`, `InvalidStateTransitionError`.
 
 Response (`200 OK`): the task's `TaskDetailResponse`, same shape as `GET /api/v1/tasks/{taskId}`.
+
+## `GET /health/live`, `GET /health/ready`, `GET /metrics`
+
+Not under `/api/v1` (operational endpoints, not part of the task API).
+See [`docs/operationsRunbook.md`](operationsRunbook.md) for what each
+one checks and how to read `/metrics`'s output.
