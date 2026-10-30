@@ -38,9 +38,11 @@ postgres_data/
 redis_data/
 dump.rdb
 
-# Benchmark results are environment-specific; keep instructions, not raw output
-benchmarks/results/*
-!benchmarks/results/.gitkeep
+# Locust's own raw per-run artifacts (failures/exceptions dumps) - the
+# written-up results under benchmarks/results/*.md ARE committed deliberately
+# (PROJECT_PLAN.md: "store results with the exact configuration").
+benchmarks/results/*_failures.csv
+benchmarks/results/*_exceptions.csv
 
 # Logs
 *.log

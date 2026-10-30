@@ -29,6 +29,9 @@ dev = [
     "ruff>=0.7,<0.8",
     "mypy>=1.13,<1.14",
 ]
+benchmark = [
+    "locust>=2.47,<3",
+]
 
 [build-system]
 requires = ["setuptools>=68"]
