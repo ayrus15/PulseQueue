@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pulsequeue.api.dependencies import getRedisClient, getSession
+from pulsequeue.api.dependencies import enforceSubmissionRateLimit, getRedisClient, getSession
 from pulsequeue.api.pagination import MAX_PAGE_SIZE, decodeCursor, encodeCursor
 from pulsequeue.api.schemas import (
     TaskDetailResponse,
@@ -30,7 +30,12 @@ from pulsequeue.queueing.redisQueue import notifyTaskReady
 router = APIRouter(prefix="/api/v1/tasks", tags=["tasks"])
 
 
-@router.post("", status_code=status.HTTP_201_CREATED, response_model=TaskSubmissionResponse)
+@router.post(
+    "",
+    status_code=status.HTTP_201_CREATED,
+    response_model=TaskSubmissionResponse,
+    dependencies=[Depends(enforceSubmissionRateLimit)],
+)
 async def submitTask(
     submission: TaskSubmissionRequest,
     request: Request,

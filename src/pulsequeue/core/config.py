@@ -77,6 +77,17 @@ class Settings(BaseSettings):
     )
     """The only directory the processFile handler may ever read from -
     ADR 0003's "restrict file processing to a controlled directory"."""
+    rateLimitEnabled: bool = Field(
+        default=False,
+        validation_alias="PULSEQUEUE_RATE_LIMIT_ENABLED",
+    )
+    """Off by default - a demo/local deployment, not an exposed service.
+    See api/rateLimit.py."""
+    rateLimitPerMinute: int = Field(
+        default=120,
+        ge=1,
+        validation_alias="PULSEQUEUE_RATE_LIMIT_PER_MINUTE",
+    )
 
     @property
     def allowedOriginsList(self) -> list[str]:

@@ -72,3 +72,9 @@ class UnauthorizedError(PulseQueueError):
     per-client authentication exists.
     """
 
+
+class RateLimitExceededError(PulseQueueError):
+    """The caller exceeded PULSEQUEUE_RATE_LIMIT_PER_MINUTE. Only raised
+    when PULSEQUEUE_RATE_LIMIT_ENABLED is set - see api/rateLimit.py.
+    """
+

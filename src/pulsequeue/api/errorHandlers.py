@@ -16,6 +16,7 @@ from pulsequeue.domain.errors import (
     IdempotencyConflictError,
     InvalidStateTransitionError,
     PulseQueueError,
+    RateLimitExceededError,
     TaskNotFoundError,
     UnauthorizedError,
     UnsupportedTaskTypeError,
@@ -33,6 +34,7 @@ _DOMAIN_ERROR_STATUS: dict[type[PulseQueueError], int] = {
     InvalidStateTransitionError: status.HTTP_409_CONFLICT,
     IdempotencyConflictError: status.HTTP_409_CONFLICT,
     UnauthorizedError: status.HTTP_401_UNAUTHORIZED,
+    RateLimitExceededError: status.HTTP_429_TOO_MANY_REQUESTS,
 }
 
 
