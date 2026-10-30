@@ -252,3 +252,38 @@ async def testAnInvalidCorrelationIdHeaderIsReplacedWithAGeneratedOne(
     )
     assert response.headers["X-Correlation-Id"] != "has spaces/and$symbols!"
     assert response.headers["X-Correlation-Id"]
+
+
+@pytest_asyncio.fixture
+async def clientWithUnreachableRedis(engine: AsyncEngine) -> AsyncIterator[AsyncClient]:
+    """Fault injection: Redis is unreachable *after* the task would
+    already be durably committed to PostgreSQL - ADR 0002's actual
+    claim, exercised here against a real (if deliberately unreachable)
+    Redis client rather than a mock.
+    """
+    application = createApp()
+    application.state.sessionFactory = createSessionFactory(engine)
+    redisClient = createRedisClient("redis://localhost:1/0")  # port 1: nothing listens there
+    application.state.redisClient = redisClient
+    transport = ASGITransport(app=application)
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as httpClient:
+            yield httpClient
+    finally:
+        await redisClient.aclose()
+
+
+async def testSubmissionSucceedsWhenRedisIsUnreachableAfterCommit(
+    clientWithUnreachableRedis: AsyncClient,
+) -> None:
+    response = await clientWithUnreachableRedis.post(
+        "/api/v1/tasks",
+        json={"taskType": "generateReport", "payload": {"reportName": "x", "periodDays": 1}},
+    )
+    assert response.status_code == 201
+    taskId = response.json()["taskId"]
+
+    # The task is durably there regardless of whether Redis ever saw it.
+    detail = await clientWithUnreachableRedis.get(f"/api/v1/tasks/{taskId}")
+    assert detail.status_code == 200
+    assert detail.json()["status"] == "queued"
