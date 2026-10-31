@@ -28,7 +28,7 @@ from pulsequeue.domain.errors import (
 logger = logging.getLogger(__name__)
 
 _DOMAIN_ERROR_STATUS: dict[type[PulseQueueError], int] = {
-    DomainValidationError: status.HTTP_422_UNPROCESSABLE_ENTITY,
+    DomainValidationError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     UnsupportedTaskTypeError: status.HTTP_400_BAD_REQUEST,
     TaskNotFoundError: status.HTTP_404_NOT_FOUND,
     InvalidStateTransitionError: status.HTTP_409_CONFLICT,
@@ -56,7 +56,7 @@ def registerErrorHandlers(app: FastAPI) -> None:
         request: Request, exc: RequestValidationError
     ) -> JSONResponse:
         return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content=_errorBody("RequestValidationError", str(exc.errors())),
         )
 
@@ -65,7 +65,7 @@ def registerErrorHandlers(app: FastAPI) -> None:
         request: Request, exc: PydanticValidationError
     ) -> JSONResponse:
         return JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             content=_errorBody("ValidationError", str(exc.errors())),
         )
 
