@@ -88,6 +88,50 @@ class Settings(BaseSettings):
         ge=1,
         validation_alias="PULSEQUEUE_RATE_LIMIT_PER_MINUTE",
     )
+    dbConnectTimeoutSeconds: float = Field(
+        default=10.0,
+        gt=0,
+        validation_alias="PULSEQUEUE_DB_CONNECT_TIMEOUT_SECONDS",
+    )
+    dbCommandTimeoutSeconds: float = Field(
+        default=30.0,
+        gt=0,
+        validation_alias="PULSEQUEUE_DB_COMMAND_TIMEOUT_SECONDS",
+    )
+    """Per-query timeout (asyncpg's ``command_timeout``) - a single stuck
+    query can never block a connection forever."""
+    dbPoolTimeoutSeconds: float = Field(
+        default=10.0,
+        gt=0,
+        validation_alias="PULSEQUEUE_DB_POOL_TIMEOUT_SECONDS",
+    )
+    """How long to wait for a free connection from the pool before
+    raising, rather than queuing indefinitely under load."""
+    redisConnectTimeoutSeconds: float = Field(
+        default=5.0,
+        gt=0,
+        validation_alias="PULSEQUEUE_REDIS_CONNECT_TIMEOUT_SECONDS",
+    )
+    """Only bounds establishing the TCP connection - deliberately not a
+    blanket per-command socket timeout, since BLPOP's own `timeout`
+    argument (waitForNotification) intentionally blocks for several
+    seconds at a time; a client-wide read timeout shorter than that
+    would misreport a normal wait as a connection failure."""
+    taskExecutionTimeoutSeconds: float = Field(
+        default=60.0,
+        gt=0,
+        validation_alias="PULSEQUEUE_TASK_EXECUTION_TIMEOUT_SECONDS",
+    )
+    """A handler that runs longer than this is cancelled and treated as a
+    retryable failure - without this, a single hung handler invocation
+    would occupy that worker slot forever (ADR 0003's lease is a
+    *different* safety net: it protects against a dead *worker*, not a
+    live worker stuck inside one handler call)."""
+    apiRequestTimeoutSeconds: float = Field(
+        default=30.0,
+        gt=0,
+        validation_alias="PULSEQUEUE_API_REQUEST_TIMEOUT_SECONDS",
+    )
 
     @property
     def allowedOriginsList(self) -> list[str]:

@@ -24,9 +24,15 @@ simply disappears from /metrics rather than showing a stale "alive"
 value forever."""
 
 
-def createRedisClient(redisUrl: str) -> Redis:
+def createRedisClient(redisUrl: str, connectTimeoutSeconds: float = 5.0) -> Redis:
+    """``connectTimeoutSeconds`` bounds only establishing the TCP
+    connection - never a blanket per-command read timeout, which would
+    break ``waitForNotification``'s intentionally multi-second BLPOP wait.
+    """
     # redis-py's own type stubs type Redis.from_url as returning Any.
-    return cast(Redis, Redis.from_url(redisUrl))
+    return cast(
+        Redis, Redis.from_url(redisUrl, socket_connect_timeout=connectTimeoutSeconds)
+    )
 
 
 async def notifyTaskReady(redisClient: Redis) -> None:
