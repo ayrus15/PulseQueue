@@ -12,6 +12,7 @@ from pulsequeue.api.errorHandlers import registerErrorHandlers
 from pulsequeue.api.middleware import (
     registerCorrelationIdMiddleware,
     registerRequestMetricsMiddleware,
+    registerRequestTimeoutMiddleware,
 )
 from pulsequeue.api.routes.deadLetters import router as deadLettersRouter
 from pulsequeue.api.routes.health import router as healthRouter
@@ -27,9 +28,16 @@ from pulsequeue.queueing.redisQueue import createRedisClient
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = getSettings()
     configureLogging(settings.logLevel)
-    engine = createEngine(settings.databaseUrl)
+    engine = createEngine(
+        settings.databaseUrl,
+        connectTimeoutSeconds=settings.dbConnectTimeoutSeconds,
+        commandTimeoutSeconds=settings.dbCommandTimeoutSeconds,
+        poolTimeoutSeconds=settings.dbPoolTimeoutSeconds,
+    )
     app.state.sessionFactory = createSessionFactory(engine)
-    app.state.redisClient = createRedisClient(settings.redisUrl)
+    app.state.redisClient = createRedisClient(
+        settings.redisUrl, connectTimeoutSeconds=settings.redisConnectTimeoutSeconds
+    )
     try:
         yield
     finally:
@@ -50,6 +58,7 @@ def createApp() -> FastAPI:
         )
 
     registerErrorHandlers(app)
+    registerRequestTimeoutMiddleware(app, settings.apiRequestTimeoutSeconds)
     registerCorrelationIdMiddleware(app)
     registerRequestMetricsMiddleware(app)
     app.include_router(tasksRouter)

@@ -1,16 +1,18 @@
 """Request correlation ID middleware (FR4), plus structured request
-logging and API request metrics.
+logging, API request metrics, and a request timeout.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, status
+from fastapi.responses import JSONResponse
 
 from pulsequeue.observability.metrics import apiRequestDurationSeconds, apiRequestsTotal
 
@@ -35,6 +37,34 @@ def registerCorrelationIdMiddleware(app: FastAPI) -> None:
         response = await callNext(request)
         response.headers[CORRELATION_ID_HEADER] = correlationId
         return response
+
+
+def registerRequestTimeoutMiddleware(app: FastAPI, timeoutSeconds: float) -> None:
+    """Bounds total request handling time (FR9's "set sensible timeouts") -
+    without this, one slow or stuck handler can occupy a request slot
+    forever instead of failing fast with a clear error.
+    """
+
+    @app.middleware("http")
+    async def enforceRequestTimeout(
+        request: Request, callNext: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        try:
+            return await asyncio.wait_for(callNext(request), timeout=timeoutSeconds)
+        except TimeoutError:
+            logger.warning(
+                "Request exceeded the timeout",
+                extra={"method": request.method, "path": request.url.path},
+            )
+            return JSONResponse(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                content={
+                    "error": {
+                        "code": "RequestTimeoutError",
+                        "message": f"Request exceeded {timeoutSeconds}s",
+                    }
+                },
+            )
 
 
 def registerRequestMetricsMiddleware(app: FastAPI) -> None:
