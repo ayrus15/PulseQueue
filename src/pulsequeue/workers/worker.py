@@ -52,6 +52,7 @@ class Worker:
         retryBaseDelaySeconds: float = 1.0,
         retryMaxDelaySeconds: float = 60.0,
         concurrency: int = 1,
+        taskExecutionTimeoutSeconds: float = 60.0,
     ) -> None:
         self._workerId = workerId
         self._sessionFactory = sessionFactory
@@ -62,6 +63,7 @@ class Worker:
         self._retryBaseDelaySeconds = retryBaseDelaySeconds
         self._retryMaxDelaySeconds = retryMaxDelaySeconds
         self._concurrency = concurrency
+        self._taskExecutionTimeoutSeconds = taskExecutionTimeoutSeconds
         self._stopping = asyncio.Event()
 
     def requestStop(self) -> None:
@@ -162,7 +164,14 @@ class Worker:
             try:
                 payloadModel = validatePayload(task.taskType, task.payload)
                 handler = getHandler(self._handlerRegistry, task.taskType)
-                result = await handler(payloadModel, task.attemptCount)
+                # Bounds a single handler invocation so a hung handler can
+                # never occupy this claim loop forever - a different
+                # safety net from the lease (ADR 0003), which protects
+                # against a dead *worker*, not a live one stuck in one call.
+                result = await asyncio.wait_for(
+                    handler(payloadModel, task.attemptCount),
+                    timeout=self._taskExecutionTimeoutSeconds,
+                )
             except Exception as exc:
                 await self._recordFailure(
                     taskRepository, attemptRepository, task, attempt, exc, logContext
@@ -226,9 +235,16 @@ def buildWorkerId() -> str:
 
 async def runWorker(settings: Settings, workerId: str | None = None) -> None:
     resolvedWorkerId = workerId or buildWorkerId()
-    engine = createEngine(settings.databaseUrl)
+    engine = createEngine(
+        settings.databaseUrl,
+        connectTimeoutSeconds=settings.dbConnectTimeoutSeconds,
+        commandTimeoutSeconds=settings.dbCommandTimeoutSeconds,
+        poolTimeoutSeconds=settings.dbPoolTimeoutSeconds,
+    )
     sessionFactory = createSessionFactory(engine)
-    redisClient = createRedisClient(settings.redisUrl)
+    redisClient = createRedisClient(
+        settings.redisUrl, connectTimeoutSeconds=settings.redisConnectTimeoutSeconds
+    )
     handlerRegistry = buildHandlerRegistry(Path(settings.processFileDirectory))
 
     worker = Worker(
@@ -241,6 +257,7 @@ async def runWorker(settings: Settings, workerId: str | None = None) -> None:
         retryBaseDelaySeconds=settings.retryBaseDelaySeconds,
         retryMaxDelaySeconds=settings.retryMaxDelaySeconds,
         concurrency=settings.workerConcurrency,
+        taskExecutionTimeoutSeconds=settings.taskExecutionTimeoutSeconds,
     )
 
     loop = asyncio.get_running_loop()
