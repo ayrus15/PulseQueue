@@ -1,8 +1,11 @@
 # Benchmarks
 
-**Status: Phase 7 - real results exist, see `results/`.** This file is
-the methodology and exact reproduction commands; `locustfile.py` is the
-workload; `results/` holds dated, environment-specific result reports.
+**Status: Phase 7 done.** Two scenarios run (1 worker vs. 4 worker
+processes, otherwise identical), compared, and written up with a
+bottleneck conclusion in `results/scenario2-4workers-c1.md`. This file
+is the methodology and exact reproduction commands; `locustfile.py` is
+the workload; `results/` holds the dated, environment-specific result
+reports and their raw Locust CSVs.
 
 ## What this measures
 

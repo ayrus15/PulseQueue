@@ -7,14 +7,15 @@ tasks over HTTP, PostgreSQL durably records them, and independent
 worker processes execute them concurrently with bounded retries,
 idempotent submission, and crash recovery.
 
-**Status: Phase 6 done — `/health/live`, `/health/ready`, and a real
-`/metrics` (Prometheus, with genuine histograms built from live
-PostgreSQL data, not estimates) exist, plus a written operations
-runbook. 198 tests pass (91% coverage), confirmed on GitHub Actions'
-own runners. Phase 7 (load testing/benchmarking) and everything after
-do not exist yet.** The table at the bottom of this file tracks
-implementation status phase by phase and will be kept honest as work
-lands; nothing here should be read as "working" until its row says so.
+**Status: Phase 7 done — real Locust benchmarks exist under
+`benchmarks/`, comparing 1 vs. 4 worker processes on real hardware,
+with a bottleneck conclusion written up from what was actually
+measured (not assumed). 198 tests pass (91% coverage), confirmed on
+GitHub Actions' own runners. Phase 8 (security hardening) and
+everything after do not exist yet.** The table at the bottom of this
+file tracks implementation status phase by phase and will be kept
+honest as work lands; nothing here should be read as "working" until
+its row says so.
 
 ## Why this exists
 
@@ -223,10 +224,17 @@ honestly - but any standard Prometheus scrape config pointed at
 
 ## Benchmarks
 
-Not yet implemented. Phase 7 adds a Locust-based load test and
-reproducible benchmark instructions under
-[`benchmarks/`](benchmarks/README.md) — no results are claimed until
-they are measured.
+[`benchmarks/`](benchmarks/README.md) holds the Locust workload
+(`locustfile.py`) and two real, run results: 1 worker process vs. 4,
+same load, same machine. Headline finding: going to 4 workers roughly
+halved median latency but only grew throughput ~20% and made tail
+latency *worse* - not what naive "more workers = proportionally more
+throughput" would predict. The best-supported read of the numbers
+(execution time stays flat either way; see
+[`benchmarks/results/scenario2-4workers-c1.md`](benchmarks/results/scenario2-4workers-c1.md)
+for the full reasoning) is that this single shared, resource-constrained
+machine - not anything in PulseQueue's own design - was the limiting
+factor in this test. Not claimed to represent any other hardware.
 
 ## Current limitations
 
@@ -253,8 +261,13 @@ they are measured.
   had stopped. In a real deployment this is Docker Compose's job
   (Phase 9) or a proper service; noted here as an actual limitation
   observed, not a hypothetical one.
-- No benchmark results exist yet (Phase 7) — none will be claimed until
-  measured and committed with their exact configuration.
+- The Phase 7 benchmark ran on one shared, resource-constrained machine
+  (4 cores, ~3.9 GB RAM) with no CPU/memory profiler attached during
+  the run - the "this machine is the bottleneck" conclusion is the
+  best-supported reading of the measured latency/throughput numbers,
+  not a directly observed fact. See
+  `benchmarks/results/scenario2-4workers-c1.md` for exactly what was
+  and wasn't measured.
 
 ## Implementation status
 
@@ -267,7 +280,7 @@ they are measured.
 | 4 | Pagination, filtering, cancellation, API quality | Done |
 | 5 | Comprehensive tests and GitHub Actions CI | Done — confirmed green on GitHub's own runners (badge above) |
 | 6 | Health checks, metrics, structured logs, runbook | Done — 198/198 tests, 91% coverage; a live smoke test caught and fixed a real negative-duration bug in the queue-wait histogram before it shipped |
-| 7 | Load testing, profiling, benchmark report | Not started |
+| 7 | Load testing, profiling, benchmark report | Done — 2 real scenarios (1 vs. 4 workers), bottleneck conclusion in `benchmarks/results/` |
 | 8 | Security hardening and threat model | Not started |
 | 9 | Packaging, documentation, demo, final review | Not started |
 

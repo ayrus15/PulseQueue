@@ -1,8 +1,8 @@
 # Benchmark result: 1 worker process, concurrency=1
 
-**Status: single scenario only - the planned 1-vs-N-worker comparison
-and bottleneck analysis were not completed this session (ran out of
-turn budget). Do not read this as a finished Phase 7.**
+**The 1-vs-4-worker comparison and bottleneck analysis this scenario
+feeds into are in
+[`scenario2-4workers-c1.md`](scenario2-4workers-c1.md).**
 
 ## Command
 
@@ -72,11 +72,7 @@ to call it "the" bottleneck - the real test (not yet run) is whether a
 second worker process, or a higher `PULSEQUEUE_WORKER_CONCURRENCY`,
 measurably cuts that wait time while throughput and failure rate hold.
 
-## What's missing from this being a real Phase 7
-
-- The 1-vs-N-worker comparison this benchmark exists to make.
-- Profiling to confirm *why* claim latency is what it is (DB round-trip
-  cost of `SELECT ... FOR UPDATE SKIP LOCKED` with `batchSize=1` vs.
-  the poll interval itself) rather than inferring it from one number.
-- A written bottleneck conclusion backed by that comparison, not just
-  this single run's numbers.
+See [`scenario2-4workers-c1.md`](scenario2-4workers-c1.md) for the
+4-worker comparison and what it actually showed - the single-worker
+hypothesis above ("claim latency dominates") turned out to be only
+part of the picture once a real comparison existed to test it against.
