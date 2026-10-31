@@ -96,6 +96,15 @@ async def testSubmitRejectsMalformedRequestBody(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+async def testSubmitRejectsABodyOverTheConfiguredSizeLimit(client: AsyncClient) -> None:
+    oversizedPayload = {
+        "taskType": "generateReport",
+        "payload": {"reportName": "x" * (getSettings().maxRequestBodyBytes + 1), "periodDays": 1},
+    }
+    response = await client.post("/api/v1/tasks", json=oversizedPayload)
+    assert response.status_code == 413
+
+
 async def testSubmitRejectsAPathTraversalFileName(client: AsyncClient) -> None:
     """A processFile submission with an unsafe fileName is rejected at
     submission (422) rather than accepted and only failing later in the

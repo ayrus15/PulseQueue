@@ -67,6 +67,50 @@ def registerRequestTimeoutMiddleware(app: FastAPI, timeoutSeconds: float) -> Non
             )
 
 
+def registerMaxRequestBodySizeMiddleware(app: FastAPI, maxBodyBytes: int) -> None:
+    """Rejects a request whose declared body size exceeds ``maxBodyBytes``
+    with 413, before any of it is read (FR9's "set sensible size limits") -
+    without this, a client could send an arbitrarily large body and have
+    it fully buffered into memory before any field-level validation (e.g.
+    a payload string's ``max_length``) ever gets a chance to reject it.
+
+    Checked against the declared ``Content-Length`` header only - a
+    request that omits it (e.g. chunked transfer-encoding) is not covered
+    here; this is a basic guard for the common case, not a substitute for
+    an operator-side reverse proxy body-size limit in a real deployment.
+    """
+
+    @app.middleware("http")
+    async def enforceMaxRequestBodySize(
+        request: Request, callNext: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        contentLength = request.headers.get("content-length")
+        if contentLength is not None:
+            try:
+                declaredSize = int(contentLength)
+            except ValueError:
+                declaredSize = None
+            if declaredSize is not None and declaredSize > maxBodyBytes:
+                logger.warning(
+                    "Rejected request exceeding max body size",
+                    extra={
+                        "method": request.method,
+                        "path": request.url.path,
+                        "declaredSize": declaredSize,
+                    },
+                )
+                return JSONResponse(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    content={
+                        "error": {
+                            "code": "RequestEntityTooLargeError",
+                            "message": f"Request body exceeds {maxBodyBytes} bytes",
+                        }
+                    },
+                )
+        return await callNext(request)
+
+
 def registerRequestMetricsMiddleware(app: FastAPI) -> None:
     """Records pulsequeue_api_requests_total / _duration_seconds (labeled
     by the route's *template*, e.g. ``/api/v1/tasks/{taskId}`` - never

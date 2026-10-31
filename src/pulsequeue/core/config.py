@@ -132,6 +132,16 @@ class Settings(BaseSettings):
         gt=0,
         validation_alias="PULSEQUEUE_API_REQUEST_TIMEOUT_SECONDS",
     )
+    maxRequestBodyBytes: int = Field(
+        default=1_000_000,
+        gt=0,
+        validation_alias="PULSEQUEUE_MAX_REQUEST_BODY_BYTES",
+    )
+    """Rejects a request whose declared Content-Length exceeds this with
+    413 before the body is read - every real payload field already has
+    its own max_length, so 1 MB comfortably covers any legitimate
+    submission while still bounding how much a client can make the
+    server buffer before that per-field validation ever runs."""
 
     @property
     def allowedOriginsList(self) -> list[str]:

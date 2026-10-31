@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pulsequeue.api.errorHandlers import registerErrorHandlers
 from pulsequeue.api.middleware import (
     registerCorrelationIdMiddleware,
+    registerMaxRequestBodySizeMiddleware,
     registerRequestMetricsMiddleware,
     registerRequestTimeoutMiddleware,
 )
@@ -61,6 +62,10 @@ def createApp() -> FastAPI:
     registerRequestTimeoutMiddleware(app, settings.apiRequestTimeoutSeconds)
     registerCorrelationIdMiddleware(app)
     registerRequestMetricsMiddleware(app)
+    # Registered last so it becomes the outermost middleware (Starlette
+    # wraps in reverse registration order) - an oversized request is
+    # rejected before any other middleware does work on it.
+    registerMaxRequestBodySizeMiddleware(app, settings.maxRequestBodyBytes)
     app.include_router(tasksRouter)
     app.include_router(deadLettersRouter)
     app.include_router(healthRouter)
