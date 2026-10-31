@@ -53,6 +53,11 @@ jobs:
       - name: Install dependencies
         run: pip install -e ".[dev]"
 
+      - name: Dependency vulnerability scan (pip-audit)
+        run: |
+          pip install pip-audit
+          pip-audit
+
       - name: Create the migrations test database
         # The postgres service only creates POSTGRES_DB on startup;
         # tests/integration/test_migrations.py needs a second, separate
