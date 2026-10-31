@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from pulsequeue.domain.errors import UnsupportedTaskTypeError
 
@@ -40,14 +40,24 @@ class ProcessFilePayload(BaseModel):
     """``fileName`` is a bare filename, never a path.
 
     The worker resolves it against a single configured directory; no
-    path separators or traversal sequences are accepted here, as the
-    first of two independent checks (ADR 0003's threat model repeats the
-    second, filesystem-level check the worker performs).
+    path separators or traversal sequences are accepted here. Rejected
+    at submission time (this validator, so the API returns 422 instead
+    of accepting an unsafe task that only fails later in the worker),
+    and again by the worker's own filesystem-level resolve+containment
+    check (``resolveProcessFilePath`` in workers/handlers.py) - the
+    second of ADR 0003's two independent checks.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     fileName: str = Field(min_length=1, max_length=128)
+
+    @field_validator("fileName")
+    @classmethod
+    def _rejectUnsafeFileName(cls, value: str) -> str:
+        if not _SAFE_FILENAME_PATTERN.match(value) or ".." in value:
+            raise ValueError(f"{value!r} is not a safe bare file name")
+        return value
 
     @property
     def isSafeFileName(self) -> bool:

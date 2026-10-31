@@ -96,6 +96,18 @@ async def testSubmitRejectsMalformedRequestBody(client: AsyncClient) -> None:
     assert response.status_code == 422
 
 
+async def testSubmitRejectsAPathTraversalFileName(client: AsyncClient) -> None:
+    """A processFile submission with an unsafe fileName is rejected at
+    submission (422) rather than accepted and only failing later in the
+    worker - see ProcessFilePayload's field_validator (Phase 8 hardening).
+    """
+    response = await client.post(
+        "/api/v1/tasks",
+        json={"taskType": "processFile", "payload": {"fileName": "../../etc/passwd"}},
+    )
+    assert response.status_code == 422
+
+
 async def testGetUnknownTaskReturns404(client: AsyncClient) -> None:
     response = await client.get("/api/v1/tasks/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404

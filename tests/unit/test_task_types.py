@@ -59,11 +59,23 @@ def testProcessFileAcceptsSafeFileNames(fileName: str) -> None:
 
 @pytest.mark.parametrize(
     "fileName",
-    ["../secret.txt", "/etc/passwd", "a/b.txt", "..\\windows\\system32", ".."],
+    [
+        "../secret.txt",
+        "/etc/passwd",
+        "a/b.txt",
+        "..\\windows\\system32",
+        "..",
+        "~/.ssh/id_rsa",
+        "a\x00.txt",
+        "..%2f..%2fetc%2fpasswd",
+    ],
 )
 def testProcessFileRejectsPathTraversalAttempts(fileName: str) -> None:
-    payload = validatePayload("processFile", {"fileName": fileName})
-    assert payload.isSafeFileName is False
+    """Rejected at submission (a 422, not a task accepted then left to
+    fail in the worker) - see ProcessFilePayload's field_validator.
+    """
+    with pytest.raises(PydanticValidationError):
+        validatePayload("processFile", {"fileName": fileName})
 
 
 def testSendNotificationAcceptsAValidPayload() -> None:
