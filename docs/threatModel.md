@@ -22,7 +22,14 @@ a professional security audit.
   the wrong token → `401`, never a silent pass. This is a documented
   interim control, not a substitute for per-user authentication - in
   particular, every holder of the one shared token can requeue or
-  inspect every task, with no per-client audit trail.
+  inspect every task, with no per-client audit trail. The dashboard's
+  dead-letter panel (`frontend/app.js`) asks for this token in a plain
+  input field and holds it only in page memory for that session - never
+  written to `localStorage`/`sessionStorage`, never logged - but it's
+  still typed into an unauthenticated static page served over whatever
+  transport the API is reachable on, so the same "don't expose this
+  beyond a trusted operator without TLS" guidance applies to the
+  dashboard as to the API itself.
 - Task handlers run inside the worker process with no network or
   filesystem access beyond what each handler explicitly needs:
   `processFile` is restricted to a single configured directory, with

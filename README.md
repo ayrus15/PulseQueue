@@ -248,16 +248,30 @@ Grafana/Prometheus server is set up here - nothing to screenshot
 honestly - but any standard Prometheus scrape config pointed at
 `/metrics` works as-is.
 
+## Dashboard
+
+A small static dashboard is served at `http://localhost:8000/ui/` once
+the API is running - no separate process, no build step, just
+`frontend/index.html` mounted read-only by the API itself
+(`PULSEQUEUE_UI_DIRECTORY`, defaults to `frontend`; the API still runs
+fine without this directory present, just without `/ui`). It submits
+tasks, polls `GET /api/v1/tasks` for a live-updating table, parses
+`GET /metrics` for the queue-depth stat cards, and has an admin-token-
+gated dead-letter panel with requeue. Vanilla HTML/CSS/JS - see
+`frontend/app.js` - talking to the same API documented below, nothing
+more.
+
 ## Demo
 
 No recorded video exists. [`docs/demoScript.md`](docs/demoScript.md)
 is a copy-pasteable walkthrough - submission, execution, retry, retry
 exhaustion to dead-letter, admin requeue, and monitoring - with the
 actual commands and actual output from a real run, runnable against
-your own stack to see (or record) the same thing.
-[`docs/operationsRunbook.md`](docs/operationsRunbook.md)'s "Failure
-recovery walkthrough" covers the one scenario that script doesn't: a
-worker crashing mid-task.
+your own stack to see (or record) the same thing; the dashboard above
+is the easier way to watch the same sequence happen live without typing
+any of it. [`docs/operationsRunbook.md`](docs/operationsRunbook.md)'s
+"Failure recovery walkthrough" covers the one scenario neither of
+those does: a worker crashing mid-task.
 
 ## Benchmarks
 
