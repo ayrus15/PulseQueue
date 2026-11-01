@@ -32,7 +32,7 @@ it does and does not guarantee — see
 [`PROJECT_PLAN.md`](PROJECT_PLAN.md) for the full specification this
 project is built against.
 
-## Architecture (planned)
+## Architecture
 
 ```
 Client --HTTP--> FastAPI API --writes--> PostgreSQL (source of truth)
@@ -47,8 +47,9 @@ Client --HTTP--> FastAPI API --writes--> PostgreSQL (source of truth)
 PostgreSQL is authoritative for task state; Redis only shortens how
 long an idle worker waits before it notices new work. See
 [ADR 0002](docs/decisions/0002-redis-role-and-recovery.md) for why, and
-[`docs/architecture.md`](docs/architecture.md) for the full request flow
-and state machine.
+[`docs/architecture.md`](docs/architecture.md) for a Mermaid system
+diagram, the full request-flow sequence diagram, the state machine, and
+delivery guarantees.
 
 ## Technology stack
 
@@ -269,6 +270,34 @@ throughput" would predict. The best-supported read of the numbers
 for the full reasoning) is that this single shared, resource-constrained
 machine - not anything in PulseQueue's own design - was the limiting
 factor in this test. Not claimed to represent any other hardware.
+
+## Future work
+
+Not limitations of the current design so much as scope that was
+deliberately left out of this project's 9 phases:
+
+- **Per-client authentication.** Admin access is currently one shared
+  bearer token (`X-Admin-Token`) with no per-client identity or audit
+  trail, and idempotency keys share one constant scope - see
+  `docs/threatModel.md`. Real multi-tenant auth (API keys or OAuth per
+  client, idempotency scoped per client) is the natural next step
+  before exposing this beyond a single trusted operator.
+- **Horizontal worker scaling beyond one machine.** Nothing in the
+  design prevents it (workers only coordinate through PostgreSQL), but
+  it's never been tried - Phase 7's benchmark ran 1 vs. 4 *processes*
+  on one machine, not workers across multiple hosts.
+- **A sliding-window or token-bucket rate limiter.** The current
+  limiter (`api/rateLimit.py`) is a simple fixed window, documented as
+  intentionally not production-grade.
+- **Automatic retry of a failed request at the API layer** for a
+  PostgreSQL connection failure mid-request (see
+  `docs/operationsRunbook.md`'s fault-scenario table) - today the
+  client sees a `500` and retries itself.
+- **A real Grafana/dashboard setup.** `/metrics` is real Prometheus
+  output (see "Monitoring" above); nothing renders it. No dashboard
+  screenshots are included in this README because no dashboard exists
+  to screenshot - PROJECT_PLAN.md's Phase 9 task list explicitly says
+  to add them "only if the dashboards exist."
 
 ## Current limitations
 
