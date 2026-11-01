@@ -1,10 +1,43 @@
 # Architecture
 
-**Status: planned.** This document describes the intended design for
-Phases 1–9. Nothing below should be read as "implemented" until the
-corresponding code, tests, and a passing run are in the repository —
-check [`README.md`](../README.md)'s implementation status table for
-what currently exists.
+**Status: implemented through Phase 8.** Every component and request
+flow described below exists in the repository and is covered by the
+test suite — check [`README.md`](../README.md)'s implementation
+status table for exactly which phase landed what.
+
+## System diagram
+
+```mermaid
+flowchart LR
+    client["Client"]
+
+    subgraph api_process["API process"]
+        api["FastAPI app\n(src/pulsequeue/api)"]
+    end
+
+    subgraph worker_process["Worker process(es)"]
+        worker["Worker\n(src/pulsequeue/workers)"]
+        recovery["Lease recovery\n(src/pulsequeue/recovery)"]
+    end
+
+    pg[("PostgreSQL\n(source of truth)")]
+    redis[("Redis\n(best-effort wake-up only)")]
+
+    client -- "POST /api/v1/tasks\nGET /api/v1/tasks/{id}" --> api
+    api -- "insert task + idempotency row\n(one transaction)" --> pg
+    api -. "best-effort notify\n(ADR 0002)" .-> redis
+    worker -- "SELECT ... FOR UPDATE SKIP LOCKED\nclaim + lease" --> pg
+    redis -. "best-effort BLPOP wake-up" .-> worker
+    worker -- "record success / failure /\nretry / dead-letter" --> pg
+    recovery -- "reclaim expired leases" --> pg
+    worker --- recovery
+```
+
+Solid arrows are the correctness-critical path (always PostgreSQL);
+dashed arrows are Redis's latency-optimization path, which can fail
+entirely without losing a task or blocking the API (ADR 0002) - a
+worker that never receives a wake-up still finds the task on its next
+poll.
 
 ## Logical components
 
@@ -32,6 +65,26 @@ what currently exists.
    JSON logging, Prometheus metrics, liveness/readiness checks.
 
 ## Request flow (task submission)
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant P as PostgreSQL
+    participant R as Redis
+    participant W as Worker
+
+    C->>A: POST /api/v1/tasks
+    A->>A: validate payload against task type schema
+    A->>P: INSERT idempotency_record + task (one transaction)
+    P-->>A: commit
+    A-->>C: 201 Created {taskId}
+    A--)R: best-effort notify (ignored if unreachable)
+    R--)W: wake-up (best-effort)
+    W->>P: SELECT ... FOR UPDATE SKIP LOCKED (claim + lease)
+    W->>W: run registered handler
+    W->>P: record outcome (succeeded/failed/queued/dead_letter)
+```
 
 1. Client `POST /api/v1/tasks` with a task type, payload, and optional
    `Idempotency-Key`.
@@ -74,6 +127,30 @@ that applies a transition is given the current state and the event, and
 raises a domain error for anything not in this table. This is unit
 tested exhaustively (every allowed pair, and a representative sample of
 disallowed pairs) rather than only tested for the "happy path."
+
+## Delivery guarantees
+
+- **At-least-once, not exactly-once.** A worker can run a handler to
+  completion, crash before recording `succeeded`, and have the task
+  reclaimed by lease recovery and run again (ADR 0003). Handlers are
+  expected to tolerate being invoked more than once for the same task
+  where that matters; PulseQueue cannot make an arbitrary handler
+  idempotent for you.
+- **Submission is deduplicated, execution is not.** An `Idempotency-Key`
+  guarantees one `task` row per key (ADR 0004) - two submissions with
+  the same key get back the *same* task, never two. It says nothing
+  about how many times that task's handler runs; that's the at-least-
+  once guarantee above.
+- **No task is lost while PostgreSQL holds it.** Every state
+  transition is a committed row in `tasks`/`task_attempts`; a crashed
+  worker, a restarted API process, or Redis being completely
+  unreachable can delay progress but cannot make a task disappear
+  (ADR 0001, ADR 0002).
+- **Ordering is not guaranteed.** Tasks are claimed by any available
+  worker as soon as they're eligible (`scheduled_at <= now()`), not in
+  strict submission order, and multiple workers claim concurrently.
+  Don't build a workflow on "task B always runs after task A" unless
+  B depends on A's result through the API, not through ordering alone.
 
 ## Why these boundaries
 

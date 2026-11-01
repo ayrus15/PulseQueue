@@ -1,8 +1,10 @@
 # API documentation
 
-**Status: Phase 4 — task submission/retrieval/listing/cancellation and
-dead-letter administration all exist.** `/health/*` / `/metrics` are
-Phase 6. Examples below are drawn directly from the integration tests,
+**Status: implemented through Phase 8.** Task
+submission/retrieval/listing/cancellation and dead-letter
+administration are Phase 4; `/health/*` / `/metrics` are Phase 6; the
+body-size limit and `processFile` path-traversal rejection below are
+Phase 8. Examples below are drawn directly from the integration tests,
 not hand-written.
 
 All endpoints are under `/api/v1`. Every response, success or error,
@@ -37,7 +39,10 @@ Request:
 currently 4). `payload` must match the schema registered for `taskType`
 in `src/pulsequeue/domain/taskTypes.py`; see that module for all five
 registered types (`generateReport`, `calculateMetrics`, `processFile`,
-`sendNotification`, `simulateFailure`) and their fields.
+`sendNotification`, `simulateFailure`) and their fields. `processFile`'s
+`fileName` is rejected with `422` at submission if it contains a path
+separator or `..` - never accepted and left to fail later in the
+worker (Phase 8; see docs/threatModel.md).
 
 An optional `Idempotency-Key` header (any client-chosen string) makes
 retries safe (ADR 0004):
@@ -74,6 +79,11 @@ Failure modes exercised by tests:
 - `payload` serializes to more than 32 KiB → `422`.
 - Idempotency key reused with a different request → `409`.
 - Rate limit exceeded (only if enabled) → `429`.
+- Request body's declared `Content-Length` exceeds
+  `PULSEQUEUE_MAX_REQUEST_BODY_BYTES` (default 1 MB - well above the
+  32 KiB `payload` limit above, since this is a whole-body guard
+  against unbounded buffering, not a realistic submission size) →
+  `413` (Phase 8 - see docs/threatModel.md).
 
 ## `GET /api/v1/tasks`
 

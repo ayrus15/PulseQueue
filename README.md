@@ -87,6 +87,28 @@ Dependency versions are pinned in [`pyproject.toml`](pyproject.toml).
 
 ## Setup
 
+There are two ways to run PulseQueue: Docker Compose (one command, no
+local PostgreSQL/Redis install) or a local virtualenv against
+PostgreSQL/Redis you run yourself. The virtualenv path is what every
+test run and benchmark in this repository actually used, since Docker
+isn't installed on the development machine this project was built on
+(see "Current limitations" below) - the `docker-compose.yml` and
+`Dockerfile` are real and reviewed, but `docker compose up` itself has
+not been run end-to-end on this machine. If you have Docker, that path
+should work as written; please open an issue if it doesn't.
+
+### Option A: Docker Compose
+
+```bash
+docker compose up --build
+```
+
+This starts PostgreSQL and Redis, runs migrations once (the `migrate`
+service), then starts the API on `http://localhost:8000` and a worker.
+`docker compose down -v` tears it down including the database volume.
+
+### Option B: local virtualenv
+
 ```bash
 py -3.11 -m venv .venv
 .venv\Scripts\activate          # Windows
@@ -98,9 +120,9 @@ pip install -e ".[dev]"
 
 Verified on this machine — see
 [ADR 0000](docs/decisions/0000-acceptance-criteria.md) for the exact
-commands and output. The Docker Compose stack (Phase 9) doesn't exist
-yet; run the API and worker directly, each against a PostgreSQL
-database reachable at `DATABASE_URL` (see `.env.example`):
+commands and output. Run the API and worker directly, each against a
+PostgreSQL database reachable at `DATABASE_URL` (see `.env.example`),
+after applying migrations (see "Migrations" below):
 
 ```bash
 uvicorn pulsequeue.main:app --reload
@@ -136,9 +158,9 @@ against a real database as part of the test suite.
 
 ## Running the stack
 
-`docker-compose.yml` doesn't exist yet (Phase 9 finalizes a one-command
-local startup). Until then, run the API and worker directly - see
-"Setup" above - against a PostgreSQL instance you provide yourself, and
+`docker compose up --build` (see "Setup" above) is the one-command
+path. Without Docker, run the API and worker directly - also "Setup"
+above - against a PostgreSQL instance you provide yourself, and
 optionally Redis (the worker degrades gracefully without it).
 
 ## Running tests
@@ -244,7 +266,13 @@ factor in this test. Not claimed to represent any other hardware.
   Chocolatey, run elevated by the repository owner since this session
   can't self-elevate) and are what the commands above and the test
   suite were actually run against. `docker compose version` is the
-  command to confirm Docker once it's installed.
+  command to confirm Docker once it's installed. `Dockerfile` and
+  `docker-compose.yml` (Phase 9) exist and have been reviewed, and
+  `pip install .`, `import pulsequeue.main`, and the `alembic` CLI were
+  each verified in an isolated clean virtualenv built from exactly what
+  the image installs - but `docker build`/`docker compose up`
+  themselves have not been run on this machine. If you have Docker and
+  the stack doesn't come up as documented, please open an issue.
 - Redis's best-effort degradation path (ADR 0002) was also verified for
   real, not just claimed: the worker and API were run and tested with
   Redis genuinely unreachable before it was installed (logged
