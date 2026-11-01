@@ -261,6 +261,19 @@ gated dead-letter panel with requeue. Vanilla HTML/CSS/JS - see
 `frontend/app.js` - talking to the same API documented below, nothing
 more.
 
+## Deployment
+
+[`docs/deployment.md`](docs/deployment.md) covers deploying to the
+cloud on a free-tier stack - Render for the API/worker (from this
+repo's own [`Dockerfile`](Dockerfile), via [`render.yaml`](render.yaml)),
+Supabase for PostgreSQL, Upstash for Redis. Not deployed and verified
+end-to-end from this development machine (no access to create
+third-party cloud accounts in this session) - written and reviewed,
+with the real connection-string gotchas (PgBouncer vs. direct
+connection, the `postgresql+asyncpg://` scheme, Upstash's `rediss://`)
+called out, but the guide itself says exactly that, rather than
+claiming more than was actually checked.
+
 ## Demo
 
 No recorded video exists. [`docs/demoScript.md`](docs/demoScript.md)
