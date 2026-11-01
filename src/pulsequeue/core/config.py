@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     )
     """The only directory the processFile handler may ever read from -
     ADR 0003's "restrict file processing to a controlled directory"."""
+    uiDirectory: str = Field(
+        default="frontend",
+        validation_alias="PULSEQUEUE_UI_DIRECTORY",
+    )
+    """Static dashboard files, served at /ui if the directory exists -
+    purely cosmetic, so a missing directory logs a warning and the API
+    still runs without it rather than failing to start."""
     rateLimitEnabled: bool = Field(
         default=False,
         validation_alias="PULSEQUEUE_RATE_LIMIT_ENABLED",

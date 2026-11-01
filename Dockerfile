@@ -12,6 +12,7 @@ COPY pyproject.toml ./
 COPY src/ ./src/
 COPY migrations/ ./migrations/
 COPY alembic.ini ./
+COPY frontend/ ./frontend/
 
 RUN pip install --no-cache-dir .
 

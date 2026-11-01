@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PulseQueue</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <h1>PulseQueue</h1>
+    </div>
+    <div class="health">
+      <span id="healthDot" class="dot dot-unknown"></span>
+      <span id="healthText">checking…</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="stats" id="statCards" aria-label="Queue depth by status"></section>
+
+    <div class="columns">
+      <section class="card">
+        <h2>Submit a task</h2>
+        <form id="submitForm">
+          <label>
+            Task type
+            <select id="taskType"></select>
+          </label>
+          <label>
+            Payload (JSON)
+            <textarea id="payload" rows="6" spellcheck="false"></textarea>
+          </label>
+          <label>
+            Max attempts <span class="hint">(optional)</span>
+            <input id="maxAttempts" type="number" min="1" placeholder="default from server" />
+          </label>
+          <button type="submit">Submit</button>
+          <p id="submitResult" class="result" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Recent tasks <span class="hint" id="taskCount"></span></h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Task</th>
+                <th>Type</th>
+                <th>Status</th>
+                <th>Attempts</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody id="taskRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2 class="collapsible" id="deadLettersToggle">
+        Dead letters <span class="chevron">▸</span>
+      </h2>
+      <div id="deadLettersBody" class="collapsible-body hidden">
+        <form id="deadLetterForm" class="inline-form">
+          <label>
+            Admin token
+            <input id="adminToken" type="password" placeholder="X-Admin-Token" autocomplete="off" />
+          </label>
+          <button type="submit">List dead letters</button>
+          <span id="deadLetterError" class="result"></span>
+        </form>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Task</th>
+                <th>Type</th>
+                <th>Attempts</th>
+                <th>Last error</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="deadLetterRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <div class="modal-backdrop hidden" id="detailBackdrop">
+      <div class="modal">
+        <button class="modal-close" id="detailClose" aria-label="Close">&times;</button>
+        <h3>Task detail</h3>
+        <pre id="detailBody"></pre>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    A simple dashboard over PulseQueue's own API - nothing here is a separate
+    service with its own state. Source: <code>frontend/</code>.
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

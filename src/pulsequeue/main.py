@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from pulsequeue.api.errorHandlers import registerErrorHandlers
 from pulsequeue.api.middleware import (
@@ -23,6 +26,8 @@ from pulsequeue.core.config import getSettings
 from pulsequeue.core.loggingConfig import configureLogging
 from pulsequeue.persistence.database import createEngine, createSessionFactory
 from pulsequeue.queueing.redisQueue import createRedisClient
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -70,6 +75,18 @@ def createApp() -> FastAPI:
     app.include_router(deadLettersRouter)
     app.include_router(healthRouter)
     app.include_router(metricsRouter)
+
+    uiDirectory = Path(settings.uiDirectory)
+    if uiDirectory.is_dir():
+        # Mounted under /ui, never at "/" - keeps this purely additive and
+        # unambiguous next to /api/v1, /health, /metrics, with no routing
+        # precedence to reason about between a static mount and the API
+        # routers above.
+        app.mount("/ui", StaticFiles(directory=uiDirectory, html=True), name="ui")
+    else:
+        logger.warning(
+            "UI directory not found - dashboard not mounted", extra={"path": str(uiDirectory)}
+        )
     return app
 
 
