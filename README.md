@@ -245,6 +245,17 @@ Grafana/Prometheus server is set up here - nothing to screenshot
 honestly - but any standard Prometheus scrape config pointed at
 `/metrics` works as-is.
 
+## Demo
+
+No recorded video exists. [`docs/demoScript.md`](docs/demoScript.md)
+is a copy-pasteable walkthrough - submission, execution, retry, retry
+exhaustion to dead-letter, admin requeue, and monitoring - with the
+actual commands and actual output from a real run, runnable against
+your own stack to see (or record) the same thing.
+[`docs/operationsRunbook.md`](docs/operationsRunbook.md)'s "Failure
+recovery walkthrough" covers the one scenario that script doesn't: a
+worker crashing mid-task.
+
 ## Benchmarks
 
 [`benchmarks/`](benchmarks/README.md) holds the Locust workload
