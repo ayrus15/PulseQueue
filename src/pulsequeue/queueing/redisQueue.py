@@ -30,9 +30,7 @@ def createRedisClient(redisUrl: str, connectTimeoutSeconds: float = 5.0) -> Redi
     break ``waitForNotification``'s intentionally multi-second BLPOP wait.
     """
     # redis-py's own type stubs type Redis.from_url as returning Any.
-    return cast(
-        Redis, Redis.from_url(redisUrl, socket_connect_timeout=connectTimeoutSeconds)
-    )
+    return cast(Redis, Redis.from_url(redisUrl, socket_connect_timeout=connectTimeoutSeconds))
 
 
 async def notifyTaskReady(redisClient: Redis) -> None:
