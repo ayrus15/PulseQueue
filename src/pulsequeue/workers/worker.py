@@ -147,9 +147,15 @@ class Worker:
             task = await taskRepository.getTaskById(taskId)
 
             startedAt = datetime.now(UTC)
+            # totalAttemptCount, not attemptCount: attempt_number must
+            # never repeat for this task across its whole lifetime (the
+            # unique constraint on task_attempts covers that), but
+            # attemptCount resets to 0 on an admin requeue - using it
+            # here once caused a duplicate-key crash on a task's first
+            # attempt after being requeued from dead_letter.
             attempt = await attemptRepository.startAttempt(
                 taskId=task.id,
-                attemptNumber=task.attemptCount,
+                attemptNumber=task.totalAttemptCount,
                 workerId=self._workerId,
                 startedAt=startedAt,
             )
@@ -157,7 +163,7 @@ class Worker:
                 "task_id": str(task.id),
                 "worker_id": self._workerId,
                 "correlation_id": task.correlationId,
-                "attempt_number": task.attemptCount,
+                "attempt_number": task.totalAttemptCount,
             }
             logger.info("Processing task", extra=logContext)
 

@@ -238,6 +238,11 @@ class TaskRepository:
         attempt count so it gets a fresh retry budget, but keeps every
         existing ``task_attempts`` row for audit (PROJECT_PLAN.md
         section 6: "keep the original task and its history inspectable").
+
+        ``attemptCount`` resets to 0; ``totalAttemptCount`` deliberately
+        does not - it's what becomes the next ``task_attempts.attempt_number``,
+        which must never repeat for this task (the unique constraint
+        covers its whole lifetime, not just the current retry budget).
         """
         task = await self.getTaskById(taskId)
         task.status = applyTransition(TaskStatus(task.status), TaskEvent.ADMIN_REQUEUE)
@@ -275,6 +280,7 @@ class TaskRepository:
             record.leaseExpiresAt = now + timedelta(seconds=leaseSeconds)
             record.startedAt = record.startedAt or now
             record.attemptCount += 1
+            record.totalAttemptCount += 1
             record.updatedAt = now
         await self._session.commit()
         return records

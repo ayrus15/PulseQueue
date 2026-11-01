@@ -254,6 +254,56 @@ async def testRequeueDeadLetterTaskPreservesAttemptHistory(dbSession: AsyncSessi
     assert afterCount == 1  # untouched by the requeue
 
 
+async def testRequeuedTaskCanBeReAttemptedWithoutCollidingOnAttemptNumber(
+    dbSession: AsyncSession,
+) -> None:
+    """Regression test for a real bug: attemptCount resets to 0 on an
+    admin requeue, but task_attempts.attempt_number must never repeat
+    for a task across its whole lifetime (old rows are kept for audit -
+    see testRequeueDeadLetterTaskPreservesAttemptHistory above). Using
+    attemptCount as the next attempt_number meant a task requeued from
+    dead_letter and attempted again collided with its own pre-requeue
+    attempt row and crashed the worker with an IntegrityError.
+    totalAttemptCount (never reset) is what actually prevents this - see
+    its comment on TaskRecord and worker.py's use of it.
+    """
+    taskRepository = TaskRepository(dbSession)
+    attemptRepository = TaskAttemptRepository(dbSession)
+    task = await _createDeadLetterTask(dbSession)
+    await attemptRepository.startAttempt(
+        task.id,
+        attemptNumber=task.totalAttemptCount,
+        workerId="worker-1",
+        startedAt=datetime.now(UTC),
+    )
+
+    await taskRepository.requeueDeadLetterTask(task.id, requeuedAt=datetime.now(UTC))
+    reClaimed = await taskRepository.claimNextTasks(workerId="worker-2", leaseSeconds=30)
+
+    assert reClaimed[0].attemptCount == 1  # fresh budget, as documented
+    assert reClaimed[0].totalAttemptCount == 2  # never resets
+
+    # This is exactly the call worker.py makes for every claimed task -
+    # it must not raise IntegrityError on the unique constraint.
+    await attemptRepository.startAttempt(
+        reClaimed[0].id,
+        attemptNumber=reClaimed[0].totalAttemptCount,
+        workerId="worker-2",
+        startedAt=datetime.now(UTC),
+    )
+
+    allAttempts = (
+        (
+            await dbSession.execute(
+                select(TaskAttemptRecord).where(TaskAttemptRecord.taskId == task.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert sorted(a.attemptNumber for a in allAttempts) == [1, 2]
+
+
 async def testRequeueingATaskThatIsNotDeadLetterFails(dbSession: AsyncSession) -> None:
     from pulsequeue.domain.errors import InvalidStateTransitionError
 

@@ -34,7 +34,7 @@ async def _createAndAbandonClaim(dbSession: AsyncSession) -> tuple[object, objec
 
     attempt = await attemptRepository.startAttempt(
         taskId=task.id,
-        attemptNumber=claimed[0].attemptCount,
+        attemptNumber=claimed[0].totalAttemptCount,
         workerId="dead-worker",
         startedAt=datetime.now(UTC),
     )

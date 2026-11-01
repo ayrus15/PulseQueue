@@ -41,6 +41,18 @@ class TaskRecord(Base):
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     attemptCount: Mapped[int] = mapped_column("attempt_count", Integer, nullable=False, default=0)
     maxAttempts: Mapped[int] = mapped_column("max_attempts", Integer, nullable=False)
+    totalAttemptCount: Mapped[int] = mapped_column(
+        "total_attempt_count", Integer, nullable=False, default=0
+    )
+    """Never reset by an admin requeue, unlike ``attemptCount`` (which is
+    the resettable "attempts used toward the current retry budget").
+    This is what actually becomes ``task_attempts.attempt_number`` - the
+    unique constraint there needs an identifier that never repeats for a
+    task across its whole lifetime, including after a requeue; reusing
+    ``attemptCount`` for that caused a real bug (a task requeued from
+    dead_letter and then failing again would hit the unique constraint
+    and crash the worker, since the pre-requeue attempt_number rows were
+    kept, by design, for audit) - see the fix for the incident."""
 
     createdAt: Mapped[datetime] = mapped_column(
         "created_at", DateTime(timezone=True), nullable=False

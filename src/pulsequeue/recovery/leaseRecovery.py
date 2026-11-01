@@ -29,7 +29,10 @@ async def recoverExpiredLeases(session: AsyncSession, now: datetime) -> list[uui
     expiredTasks = await taskRepository.findExpiredLeaseTasks(now)
     recoveredIds: list[uuid.UUID] = []
     for task in expiredTasks:
-        await attemptRepository.closeOrphanedAttempt(task.id, task.attemptCount, now)
+        # totalAttemptCount, matching what worker.py actually passed to
+        # startAttempt - attemptCount would be wrong for a task that was
+        # ever requeued from dead_letter (see worker.py's own comment).
+        await attemptRepository.closeOrphanedAttempt(task.id, task.totalAttemptCount, now)
         staleLeaseOwner = task.leaseOwner
         await taskRepository.applyLeaseExpired(task, now)
         logger.warning(
