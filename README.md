@@ -7,16 +7,17 @@ tasks over HTTP, PostgreSQL durably records them, and independent
 worker processes execute them concurrently with bounded retries,
 idempotent submission, and crash recovery.
 
-**Status: Phase 8 done — connection/request timeouts, a request body
-size limit, a dependency vulnerability scan (now also in CI), and a
-path-traversal gap closed at the API boundary rather than only in the
-worker. See `docs/threatModel.md`'s "Phase 8 findings" for what was
-checked, what changed, and what was reviewed and found already sound.
-208 tests pass (91% coverage), confirmed on GitHub Actions' own
-runners. Phase 9 (packaging, docs, demo) does not exist yet.** The
-table at the bottom of this file tracks implementation status phase by
-phase and will be kept honest as work lands; nothing here should be
-read as "working" until its row says so.
+**Status: all 9 phases done.** Docker Compose, an architecture diagram,
+a real failure-recovery walkthrough, a runnable demo script, and the
+filled-in final acceptance checklist landed in Phase 9 - see
+[`docs/finalReview.md`](docs/finalReview.md) for exactly what was
+verified and what's genuinely not done (Docker itself was never run on
+this machine; no dashboard screenshots because no dashboard exists; no
+video, only a runnable script). 208 tests pass (90.77% coverage),
+confirmed on GitHub Actions' own runners, including a dependency
+vulnerability scan. The table at the bottom of this file tracks
+implementation status phase by phase and will be kept honest as work
+lands; nothing here should be read as "working" until its row says so.
 
 ## Why this exists
 
@@ -352,7 +353,7 @@ deliberately left out of this project's 9 phases:
 | 6 | Health checks, metrics, structured logs, runbook | Done — 198/198 tests, 91% coverage; a live smoke test caught and fixed a real negative-duration bug in the queue-wait histogram before it shipped |
 | 7 | Load testing, profiling, benchmark report | Done — 2 real scenarios (1 vs. 4 workers), bottleneck conclusion in `benchmarks/results/` |
 | 8 | Security hardening and threat model | Done — see `docs/threatModel.md`'s "Phase 8 findings"; 208/208 tests, 91% coverage |
-| 9 | Packaging, documentation, demo, final review | Not started |
+| 9 | Packaging, documentation, demo, final review | Done — see [`docs/finalReview.md`](docs/finalReview.md) for the filled-in acceptance checklist and what's genuinely not done |
 
 See [`PROJECT_PLAN.md`](PROJECT_PLAN.md) for the full specification and
 [`docs/decisions/`](docs/decisions/) for architecture decision records.
