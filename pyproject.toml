@@ -31,6 +31,12 @@ dev = [
     "httpx>=0.27,<0.28",
     "ruff>=0.7,<0.8",
     "mypy>=1.13,<1.14",
+    "pip-audit>=2.7",
+    # setuptools isn't a runtime dependency of this project, but it's
+    # always present in the environment pip installs into - [build-system]
+    # requires only governs the isolated build env, not that persistent
+    # copy, so it has to be upgraded explicitly here too (Phase 8 audit).
+    "setuptools>=84.1.0",
 ]
 benchmark = [
     "locust>=2.47,<3",
