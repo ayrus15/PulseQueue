@@ -64,7 +64,7 @@ delivery guarantees.
 - **Testing:** pytest, pytest-asyncio, HTTPX
 - **Quality:** Ruff (lint + format), mypy (strict)
 - **Packaging/runtime:** Docker Compose
-- **CI:** GitHub Actions (not yet configured — Phase 5)
+- **CI:** GitHub Actions (`.github/workflows/ci.yml` - see "Continuous integration" below)
 
 Dependency versions are pinned in [`pyproject.toml`](pyproject.toml).
 
@@ -176,7 +176,7 @@ pytest --cov=pulsequeue --cov-report=term-missing   # with coverage, like CI
 Integration tests need a real PostgreSQL database and **skip cleanly**
 (not fail) if one isn't reachable, printing the exact command to set one
 up. Verified against a real local PostgreSQL 18 + Redis 8, and
-confirmed again on GitHub's own runners via CI (182 tests, 91.64%
+confirmed again on GitHub's own runners via CI (208 tests, 90.77%
 coverage, 0 failures - unit, API integration, task claiming/concurrency
 (including a real cancel-vs-claim race and a real concurrent-duplicate-
 idempotency-submission test), worker end-to-end, lease recovery,
@@ -199,8 +199,9 @@ pytest
 push to `main` and every pull request: `ruff check`, `ruff format
 --check`, `mypy --strict`, an import sanity check, then the full test
 suite with coverage against real `postgres:18`/`redis:8` service
-containers (`--cov-fail-under=85`, comfortably below the 91.64% this
-suite actually measures). Coverage XML is uploaded as a build
+containers (`--cov-fail-under=85`, comfortably below the 90.77% this
+suite actually measures), and now also a `pip-audit` dependency
+vulnerability scan (Phase 8). Coverage XML is uploaded as a build
 artifact. See the badge at the top of this file for current status.
 
 ## API
