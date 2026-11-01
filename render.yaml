@@ -1,14 +1,21 @@
 # Render Blueprint - deploys the API (which also serves the dashboard
-# at /ui) and the worker from the same Dockerfile this repo already
-# has. PostgreSQL and Redis are NOT defined here - this project uses
+# at /ui) from the same Dockerfile this repo already has.
+#
+# The worker is NOT here: Render's free tier doesn't include
+# Background Worker services (only Web Services), so the worker runs
+# instead on a free Google Cloud "Always Free" VM - see
+# deploy/gcp/setup.sh and docs/deployment.md's "Worker on a free
+# Google Cloud VM" section.
+#
+# PostgreSQL and Redis also aren't defined here - this project uses
 # Supabase (Postgres) and Upstash (Redis) instead of Render's own
 # managed databases; see docs/deployment.md for why and how to wire
 # their connection strings into the env vars below.
 #
 # Deploy: Render dashboard -> New -> Blueprint -> point at this repo.
-# Render reads this file and creates both services; you fill in the
-# env vars marked `sync: false` yourself (Render prompts for these,
-# they're never committed to the repo).
+# Render reads this file and proposes the service below; you fill in
+# the env vars marked `sync: false` yourself (Render prompts for
+# these, they're never committed to the repo).
 services:
   - type: web
     name: pulsequeue-api
@@ -27,21 +34,6 @@ services:
       - key: REDIS_URL
         sync: false
       - key: PULSEQUEUE_ADMIN_TOKEN
-        sync: false
-      - key: PULSEQUEUE_LOG_LEVEL
-        value: INFO
-
-  - type: worker
-    name: pulsequeue-worker
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    dockerContext: .
-    plan: free
-    dockerCommand: python -m pulsequeue.workers.worker
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-      - key: REDIS_URL
         sync: false
       - key: PULSEQUEUE_LOG_LEVEL
         value: INFO

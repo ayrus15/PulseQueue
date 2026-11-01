@@ -1,0 +1,25 @@
+[Unit]
+Description=PulseQueue worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pulsequeue
+Group=pulsequeue
+WorkingDirectory=/opt/pulsequeue
+EnvironmentFile=/opt/pulsequeue/.env
+ExecStart=/opt/pulsequeue/.venv/bin/python -m pulsequeue.workers.worker
+Restart=on-failure
+RestartSec=5
+
+# The worker makes only outbound connections (Supabase, Upstash) and
+# needs nothing outside its own install directory - no reason to run
+# it with more than this.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/pulsequeue
+
+[Install]
+WantedBy=multi-user.target

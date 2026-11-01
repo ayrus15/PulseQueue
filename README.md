@@ -264,15 +264,20 @@ more.
 ## Deployment
 
 [`docs/deployment.md`](docs/deployment.md) covers deploying to the
-cloud on a free-tier stack - Render for the API/worker (from this
+cloud on a free-tier stack: Render for the API/dashboard (from this
 repo's own [`Dockerfile`](Dockerfile), via [`render.yaml`](render.yaml)),
-Supabase for PostgreSQL, Upstash for Redis. Not deployed and verified
+Supabase for PostgreSQL, Upstash for Redis, and the worker on a free
+Google Cloud "Always Free" VM via systemd
+([`deploy/gcp/`](deploy/gcp/)) - four providers because Render's free
+tier doesn't include a Background Worker service, and the worker is a
+process that has to run forever, which no serverless/request-triggered
+platform (Vercel included) can host. Not deployed and verified
 end-to-end from this development machine (no access to create
 third-party cloud accounts in this session) - written and reviewed,
-with the real connection-string gotchas (PgBouncer vs. direct
-connection, the `postgresql+asyncpg://` scheme, Upstash's `rediss://`)
-called out, but the guide itself says exactly that, rather than
-claiming more than was actually checked.
+with the real gotchas (PgBouncer vs. direct connection, the
+`postgresql+asyncpg://` scheme, Upstash's `rediss://`) called out, but
+the guide itself says exactly that, rather than claiming more than was
+actually checked.
 
 ## Demo
 
