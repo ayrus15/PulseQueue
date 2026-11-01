@@ -1,8 +1,10 @@
 # Operations runbook
 
-**Status: written against the actual Phase 1-6 implementation**, run
-directly (no Docker Compose stack yet - Phase 9). Every command below
-has been run for real on this machine; nothing here is speculative.
+**Status: written against the actual Phase 1-8 implementation**, run
+directly against a local PostgreSQL/Redis install (see README.md's
+"Setup" for the Docker Compose alternative, added in Phase 9 but not
+run end-to-end on this machine - Docker isn't installed here). Every
+command below has been run for real; nothing here is speculative.
 
 ## Starting the stack
 
@@ -154,3 +156,85 @@ failure mid-request. The API will return `500` (never a raw stack
 trace - `api/errorHandlers.py`'s catch-all) and `/health/ready` will
 report `503` once PostgreSQL is reachable again for that check to run;
 no automatic retry of a failed request exists at the API layer today.
+
+## Failure recovery walkthrough: a crashed worker
+
+This is a real run against a real PostgreSQL database and a real
+worker process on 2026-11-01 (Phase 9), with the actual commands and
+actual output below - not a hypothetical. The scenario: a worker
+claims a task, then crashes before finishing it; a *different* worker
+run later recovers and completes it.
+
+A real crash is hard to trigger on demand with millisecond-fast demo
+handlers, so the "crash" is simulated the same way
+`tests/integration/test_lease_recovery.py` does it: directly setting
+the row to a state that is, to the recovery mechanism, indistinguishable
+from an actual crash (`running`, with a lease that has already
+expired) - the mechanism only ever looks at `lease_expires_at`, never
+at *why* the worker that held it stopped checking in.
+
+**1. API running, task submitted for real:**
+
+```bash
+$ curl -s -X POST http://127.0.0.1:8001/api/v1/tasks -H "Content-Type: application/json" \
+    -d '{"taskType": "generateReport", "payload": {"reportName": "recovery-demo", "periodDays": 1}}'
+{"taskId":"f58c4756-8d05-4786-a970-adb2abad86fd","status":"queued","statusUrl":"/api/v1/tasks/f58c4756-8d05-4786-a970-adb2abad86fd"}
+```
+
+**2. Simulate a worker that claimed it and then crashed** (status
+`running`, a lease already in the past, and the orphaned
+`task_attempts` row a real claim would have created):
+
+```sql
+UPDATE tasks SET status = 'running', attempt_count = 1,
+  started_at = now() - interval '2 minutes', lease_owner = 'demo-dead-worker',
+  lease_expires_at = now() - interval '1 minute', updated_at = now()
+WHERE id = 'f58c4756-8d05-4786-a970-adb2abad86fd';
+-- UPDATE 1
+
+INSERT INTO task_attempts (id, task_id, attempt_number, worker_id, started_at)
+VALUES (gen_random_uuid(), 'f58c4756-8d05-4786-a970-adb2abad86fd', 1, 'demo-dead-worker', now() - interval '2 minutes');
+-- INSERT 0 1
+```
+
+Confirmed stuck, from the API's own point of view:
+
+```bash
+$ curl -s http://127.0.0.1:8001/api/v1/tasks/f58c4756-8d05-4786-a970-adb2abad86fd
+{"taskId":"f58c4756-...","status":"running","attemptCount":1,"startedAt":"2026-11-01T07:26:24Z", ...}
+```
+
+**3. Start a real worker** (`python -m pulsequeue.workers.worker`) -
+its very first poll cycle's lease-recovery pass finds this task:
+
+```json
+{"timestamp": "2026-11-01 12:58:39,294", "level": "INFO", "message": "Worker starting", "worker_id": "DESKTOP-TH61CTF-a720978d", "concurrency": 4}
+{"timestamp": "2026-11-01 12:58:39,911", "level": "WARNING", "message": "Recovered task with expired lease", "task_id": "f58c4756-8d05-4786-a970-adb2abad86fd", "stale_lease_owner": "demo-dead-worker"}
+{"timestamp": "2026-11-01 12:58:39,915", "level": "INFO", "message": "Lease recovery pass requeued tasks", "worker_id": "DESKTOP-TH61CTF-a720978d", "recovered_count": 1}
+{"timestamp": "2026-11-01 12:58:39,980", "level": "INFO", "message": "Processing task", "task_id": "f58c4756-8d05-4786-a970-adb2abad86fd", "worker_id": "DESKTOP-TH61CTF-a720978d", "attempt_number": 2}
+{"timestamp": "2026-11-01 12:58:40,018", "level": "INFO", "message": "Task succeeded", "task_id": "f58c4756-8d05-4786-a970-adb2abad86fd", "worker_id": "DESKTOP-TH61CTF-a720978d", "attempt_number": 2}
+```
+
+**4. Final state** - `succeeded`, on its second attempt, with the
+first attempt's abandonment preserved in the audit trail rather than
+overwritten:
+
+```bash
+$ curl -s http://127.0.0.1:8001/api/v1/tasks/f58c4756-8d05-4786-a970-adb2abad86fd
+{"taskId":"f58c4756-...","status":"succeeded","attemptCount":2,
+ "result":{"summary":"Report 'recovery-demo' covering the last 1 day(s).", ...}, ...}
+
+$ psql ... -c "SELECT attempt_number, worker_id, outcome FROM task_attempts WHERE task_id='f58c4756-...' ORDER BY attempt_number;"
+ attempt_number |        worker_id         |    outcome    
+----------------+--------------------------+---------------
+              1 | demo-dead-worker         | lease_expired
+              2 | DESKTOP-TH61CTF-a720978d | succeeded
+```
+
+No manual intervention beyond starting a worker was needed - the same
+poll loop that picks up new work also reclaims abandoned work, because
+they're the same code path (ADR 0003's design goal). This is the same
+scenario `tests/integration/test_lease_recovery.py` exercises against
+a real database on every test run; this walkthrough is that same
+mechanism driven by the real API and a real worker process instead of
+calling the repository functions directly.
