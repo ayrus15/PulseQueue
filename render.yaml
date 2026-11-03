@@ -28,10 +28,12 @@ services:
     dockerContext: .
     plan: free
     healthCheckPath: /health/live
-    # Applies pending migrations before every deploy, then starts the
-    # API - alembic upgrade head is a no-op when already current, so
-    # this is safe to run on every boot, not just the first one.
-    dockerCommand: sh -c "alembic upgrade head && exec uvicorn pulsequeue.main:app --host 0.0.0.0 --port $PORT"
+    # A script file, not an inline shell string - Render's dockerCommand
+    # doesn't reliably interpret shell syntax (&&, quotes) passed inline
+    # here, confirmed by it literally failing to find a command named
+    # "alembic upgrade head && exec uvicorn ..." on a real deploy. See
+    # deploy/render/start.sh for what this actually runs.
+    dockerCommand: ./deploy/render/start.sh
     envVars:
       - key: DATABASE_URL
         sync: false

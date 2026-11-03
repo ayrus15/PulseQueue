@@ -13,8 +13,9 @@ COPY src/ ./src/
 COPY migrations/ ./migrations/
 COPY alembic.ini ./
 COPY frontend/ ./frontend/
+COPY deploy/render/start.sh ./deploy/render/start.sh
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . && chmod +x ./deploy/render/start.sh
 
 # Runs as a non-root user - no part of this app needs root.
 RUN useradd --create-home --shell /bin/bash pulsequeue
