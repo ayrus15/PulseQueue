@@ -264,20 +264,24 @@ more.
 ## Deployment
 
 [`docs/deployment.md`](docs/deployment.md) covers deploying to the
-cloud on a free-tier stack: Render for the API/dashboard (from this
-repo's own [`Dockerfile`](Dockerfile), via [`render.yaml`](render.yaml)),
-Supabase for PostgreSQL, Upstash for Redis, and the worker on a free
-Google Cloud "Always Free" VM via systemd
-([`deploy/gcp/`](deploy/gcp/)) - four providers because Render's free
-tier doesn't include a Background Worker service, and the worker is a
-process that has to run forever, which no serverless/request-triggered
-platform (Vercel included) can host. Not deployed and verified
-end-to-end from this development machine (no access to create
-third-party cloud accounts in this session) - written and reviewed,
-with the real gotchas (PgBouncer vs. direct connection, the
-`postgresql+asyncpg://` scheme, Upstash's `rediss://`) called out, but
-the guide itself says exactly that, rather than claiming more than was
-actually checked.
+cloud on a free-tier stack requiring no credit card anywhere: Render
+(from this repo's own [`Dockerfile`](Dockerfile), via
+[`render.yaml`](render.yaml)) for the API, the dashboard, and - via
+`PULSEQUEUE_RUN_WORKER_IN_PROCESS` - the worker too, all in one free
+service; Supabase for PostgreSQL; Upstash for Redis. Running the
+worker in-process is a documented, logged deployment concession for
+Render's lack of a free Background Worker tier (and GCP/Oracle's free
+VM tiers still requiring a card) - not this project's real
+architecture, which keeps the API and worker as genuinely independent
+processes (see `docs/architecture.md`); the alternative path in
+`docs/deployment.md` runs the worker separately on a free GCP VM
+([`deploy/gcp/`](deploy/gcp/)) for anyone who'd rather have that and
+doesn't mind the card. Not deployed and verified end-to-end from this
+development machine (no access to create third-party cloud accounts in
+this session) - written and reviewed, with the real gotchas (PgBouncer
+vs. direct connection, the `postgresql+asyncpg://` scheme, Upstash's
+`rediss://`) called out, but the guide itself says exactly that, rather
+than claiming more than was actually checked.
 
 ## Demo
 

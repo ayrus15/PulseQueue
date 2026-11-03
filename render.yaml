@@ -1,11 +1,15 @@
 # Render Blueprint - deploys the API (which also serves the dashboard
 # at /ui) from the same Dockerfile this repo already has.
 #
-# The worker is NOT here: Render's free tier doesn't include
-# Background Worker services (only Web Services), so the worker runs
-# instead on a free Google Cloud "Always Free" VM - see
-# deploy/gcp/setup.sh and docs/deployment.md's "Worker on a free
-# Google Cloud VM" section.
+# PULSEQUEUE_RUN_WORKER_IN_PROCESS=true below runs the worker as a
+# background task inside this same service - Render's free tier has
+# no Background Worker offering, so this keeps the whole deployment to
+# one free service and zero extra accounts/cards. It's a documented
+# deployment-cost concession, not this project's real architecture
+# (see docs/architecture.md and src/pulsequeue/main.py's lifespan) -
+# if you'd rather run the worker as its own process, the alternative
+# is deploy/gcp/setup.sh (a free GCP VM, though GCP requires a card on
+# file even for its free tier) - see docs/deployment.md.
 #
 # PostgreSQL and Redis also aren't defined here - this project uses
 # Supabase (Postgres) and Upstash (Redis) instead of Render's own
@@ -37,3 +41,5 @@ services:
         sync: false
       - key: PULSEQUEUE_LOG_LEVEL
         value: INFO
+      - key: PULSEQUEUE_RUN_WORKER_IN_PROCESS
+        value: "true"
