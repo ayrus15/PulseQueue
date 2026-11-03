@@ -5,12 +5,16 @@ API, the dashboard (`/ui`), and - by default - the worker too, all in
 one free Web Service, from this repo's own `Dockerfile`; Supabase
 provides PostgreSQL; Upstash provides Redis.
 
-Nothing here has been deployed and verified end-to-end from this
-development machine (no Docker, and no access to create third-party
-cloud accounts) - this is a reviewed, best-effort guide, not a
-"confirmed working" claim. If a step doesn't match what you see in
-these dashboards, their UIs change; the connection-string shapes and
-env var names are the part that actually matters and is stable.
+Not deployed from this development machine itself (no Docker, and no
+access to create third-party cloud accounts here) - but it has been
+exercised against a real Render deployment by the repository owner,
+and two real issues that a purely-reviewed guide wouldn't have caught
+are documented below as they were actually found: Render not
+interpreting shell syntax in its `dockerCommand` field, and Supabase's
+direct connection being IPv6-only. If a step doesn't match what you
+see in these dashboards, their UIs change; the connection-string
+shapes and env var names are the part that actually matters and is
+stable.
 
 ## Why the worker runs in the API process here
 
@@ -36,28 +40,39 @@ free GCP VM" at the bottom.
 ## 1. PostgreSQL on Supabase
 
 1. Create a project at [supabase.com](https://supabase.com) (free tier).
-2. Project Settings → Database → Connection string. Use the **direct
-   connection** (port `5432`), not the "Transaction pooler" (port
-   `6543`/PgBouncer). This project's `asyncpg` driver uses server-side
-   prepared statements by default, which PgBouncer's transaction-pooling
-   mode doesn't support correctly - connecting through the pooler can
-   cause intermittent "prepared statement already exists" errors under
-   concurrent load. Direct connection has no such issue and this
-   project's connection count (one Render service) is well within what
-   a free-tier direct connection limit allows.
-3. Supabase gives you `postgresql://postgres:[password]@db.[ref].supabase.co:5432/postgres`.
-   Change the scheme to `postgresql+asyncpg://` (this project's
-   `DATABASE_URL` always needs that driver prefix - see
+2. Project Settings → Database → Connection string. Use the **Session
+   pooler** connection string - not "Direct connection" and not
+   "Transaction pooler". Confirmed live, on an actual Render deploy:
+   - **Direct connection** (`db.[ref].supabase.co:5432`) is IPv6-only
+     for most new Supabase projects, and Render's network doesn't
+     support outbound IPv6 - migrations failed outright with
+     `socket.gaierror: Name or service not known` (the hostname
+     couldn't even resolve).
+   - **Transaction pooler** (port `6543`) is IPv4-reachable, but this
+     project's `asyncpg` driver uses server-side prepared statements by
+     default, which PgBouncer's transaction-pooling mode doesn't
+     support correctly - this can cause intermittent "prepared
+     statement already exists" errors under concurrent load.
+   - **Session pooler** (port `5432`, on the pooler host) is
+     IPv4-reachable *and* keeps one dedicated backend connection per
+     client session (not swapped per-transaction like the transaction
+     pooler), so prepared statements work correctly too. This is the
+     one that actually works end-to-end.
+3. Supabase gives you something like
+   `postgresql://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres`
+   - note the username is `postgres.[project-ref]`, not just `postgres`,
+   for pooled connections. Change the scheme to `postgresql+asyncpg://`
+   (this project's `DATABASE_URL` always needs that driver prefix - see
    `src/pulsequeue/core/config.py`):
 
    ```
-   postgresql+asyncpg://postgres:[password]@db.[ref].supabase.co:5432/postgres
+   postgresql+asyncpg://postgres.[project-ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres
    ```
 
    That's the value for `DATABASE_URL` below. Migrations run
-   automatically on every Render deploy (see `render.yaml`'s
-   `dockerCommand`) - you don't need to run `alembic upgrade head`
-   against Supabase yourself.
+   automatically on every Render deploy (see
+   [`deploy/render/start.sh`](../deploy/render/start.sh)) - you don't
+   need to run `alembic upgrade head` against Supabase yourself.
 
 ## 2. Redis on Upstash
 

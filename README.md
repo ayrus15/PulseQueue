@@ -276,12 +276,13 @@ architecture, which keeps the API and worker as genuinely independent
 processes (see `docs/architecture.md`); the alternative path in
 `docs/deployment.md` runs the worker separately on a free GCP VM
 ([`deploy/gcp/`](deploy/gcp/)) for anyone who'd rather have that and
-doesn't mind the card. Not deployed and verified end-to-end from this
-development machine (no access to create third-party cloud accounts in
-this session) - written and reviewed, with the real gotchas (PgBouncer
-vs. direct connection, the `postgresql+asyncpg://` scheme, Upstash's
-`rediss://`) called out, but the guide itself says exactly that, rather
-than claiming more than was actually checked.
+doesn't mind the card. The repository owner deployed this for real on
+Render, which is how two real gotchas got caught and documented rather
+than guessed: Supabase's direct connection is IPv6-only and doesn't
+resolve on Render's network (use the Session pooler instead), and
+`DATABASE_URL` needs the `postgresql+asyncpg://` scheme Supabase
+doesn't give you by default. The guide says what was actually checked
+and what wasn't, rather than claiming more than was verified.
 
 ## Demo
 
