@@ -53,7 +53,11 @@ async def testInProcessWorkerProcessesATaskThenShutsDownCleanly(
             await asyncio.sleep(0.1)
             async with sessionFactory() as session:
                 refreshed = await TaskRepository(session).getTaskById(taskId)
-            if refreshed.status != "queued":
+            # "running" is a real but non-terminal state the task passes
+            # through - stop polling only once it reaches a terminal one,
+            # not on the first status change (a fast CI runner can easily
+            # catch it mid-"running" on the very first poll).
+            if refreshed.status not in ("queued", "running"):
                 break
 
     assert refreshed is not None
