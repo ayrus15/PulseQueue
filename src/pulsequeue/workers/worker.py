@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from pulsequeue.core.config import Settings, getSettings
 from pulsequeue.core.loggingConfig import configureLogging
@@ -239,7 +239,19 @@ def buildWorkerId() -> str:
     return f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
 
 
-async def runWorker(settings: Settings, workerId: str | None = None) -> None:
+def buildWorker(
+    settings: Settings, workerId: str | None = None
+) -> tuple[Worker, AsyncEngine, Redis]:
+    """Construct a ``Worker`` plus the engine/Redis client it owns, without
+    starting it or touching process-level signal handling.
+
+    Shared by ``runWorker`` (the standalone ``python -m
+    pulsequeue.workers.worker`` entrypoint, which adds its own
+    SIGINT/SIGTERM handling below) and ``main.py``'s optional
+    in-process worker path, which must *not* install its own signal
+    handlers since it shares the API's event loop - and uvicorn's own
+    shutdown handling - with FastAPI.
+    """
     resolvedWorkerId = workerId or buildWorkerId()
     engine = createEngine(
         settings.databaseUrl,
@@ -265,6 +277,11 @@ async def runWorker(settings: Settings, workerId: str | None = None) -> None:
         concurrency=settings.workerConcurrency,
         taskExecutionTimeoutSeconds=settings.taskExecutionTimeoutSeconds,
     )
+    return worker, engine, redisClient
+
+
+async def runWorker(settings: Settings, workerId: str | None = None) -> None:
+    worker, engine, redisClient = buildWorker(settings, workerId)
 
     loop = asyncio.get_running_loop()
     # add_signal_handler gives truly graceful shutdown (finish the current

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -26,6 +27,7 @@ from pulsequeue.core.config import getSettings
 from pulsequeue.core.loggingConfig import configureLogging
 from pulsequeue.persistence.database import createEngine, createSessionFactory
 from pulsequeue.queueing.redisQueue import createRedisClient
+from pulsequeue.workers.worker import buildWorker, buildWorkerId
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +46,33 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.redisClient = createRedisClient(
         settings.redisUrl, connectTimeoutSeconds=settings.redisConnectTimeoutSeconds
     )
+
+    worker = None
+    workerTask: asyncio.Task[None] | None = None
+    workerEngine = None
+    workerRedisClient = None
+    if settings.runWorkerInProcess:
+        logger.warning(
+            "PULSEQUEUE_RUN_WORKER_IN_PROCESS is set - running the worker "
+            "inside the API process. This is a deployment-cost concession, "
+            "not the documented architecture (see docs/architecture.md) - "
+            "prefer `python -m pulsequeue.workers.worker` as its own "
+            "process wherever that's an option. See docs/deployment.md.",
+        )
+        worker, workerEngine, workerRedisClient = buildWorker(
+            settings, workerId=f"{buildWorkerId()}-inprocess"
+        )
+        workerTask = asyncio.create_task(worker.run())
+
     try:
         yield
     finally:
+        if worker is not None and workerTask is not None:
+            worker.requestStop()
+            await workerTask
+        if workerEngine is not None and workerRedisClient is not None:
+            await workerRedisClient.aclose()
+            await workerEngine.dispose()
         await app.state.redisClient.aclose()
         await engine.dispose()
 

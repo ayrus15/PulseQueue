@@ -84,6 +84,17 @@ class Settings(BaseSettings):
     """Static dashboard files, served at /ui if the directory exists -
     purely cosmetic, so a missing directory logs a warning and the API
     still runs without it rather than failing to start."""
+    runWorkerInProcess: bool = Field(
+        default=False,
+        validation_alias="PULSEQUEUE_RUN_WORKER_IN_PROCESS",
+    )
+    """A deployment-cost concession, not the documented architecture
+    (see docs/architecture.md's "Workers and the API never share
+    process state") - for a host with no separate place to run a
+    background process (e.g. a single free web-service tier), this
+    starts the worker as a background task inside the API process
+    instead. Prefer running `python -m pulsequeue.workers.worker` as
+    its own process wherever that's an option; see docs/deployment.md."""
     rateLimitEnabled: bool = Field(
         default=False,
         validation_alias="PULSEQUEUE_RATE_LIMIT_ENABLED",
