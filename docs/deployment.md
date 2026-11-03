@@ -6,15 +6,18 @@ one free Web Service, from this repo's own `Dockerfile`; Supabase
 provides PostgreSQL; Upstash provides Redis.
 
 Not deployed from this development machine itself (no Docker, and no
-access to create third-party cloud accounts here) - but it has been
-exercised against a real Render deployment by the repository owner,
-and two real issues that a purely-reviewed guide wouldn't have caught
-are documented below as they were actually found: Render not
-interpreting shell syntax in its `dockerCommand` field, and Supabase's
-direct connection being IPv6-only. If a step doesn't match what you
-see in these dashboards, their UIs change; the connection-string
-shapes and env var names are the part that actually matters and is
-stable.
+access to create third-party cloud accounts here) - but this exact
+guide is what the repository owner followed for a real Render
+deployment, which is now **live**:
+[pulsequeue-api-ueyd.onrender.com/ui/](https://pulsequeue-api-ueyd.onrender.com/ui/).
+Every gotcha documented below (Render not interpreting shell syntax in
+`dockerCommand`, Supabase's direct connection being IPv6-only, a
+password needing percent-encoding, and that in turn breaking Alembic's
+`ConfigParser`-based config) is something that actually happened and
+was actually fixed during that deployment, not guessed in advance. If
+a step doesn't match what you see in these dashboards, their UIs
+change; the connection-string shapes and env var names are the part
+that actually matters and is stable.
 
 ## Why the worker runs in the API process here
 

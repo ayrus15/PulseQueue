@@ -2,22 +2,34 @@
 
 [![CI](https://github.com/ayrus15/PulseQueue/actions/workflows/ci.yml/badge.svg)](https://github.com/ayrus15/PulseQueue/actions/workflows/ci.yml)
 
+**Live:** [pulsequeue-api-ueyd.onrender.com/ui/](https://pulsequeue-api-ueyd.onrender.com/ui/) -
+deployed on Render + Supabase + Upstash, see
+[`docs/deployment.md`](docs/deployment.md). Free-tier hosting, so the
+first request after a period of idle can take 30-60s to wake up.
+
 A distributed task processing and reliability platform: clients submit
 tasks over HTTP, PostgreSQL durably records them, and independent
 worker processes execute them concurrently with bounded retries,
 idempotent submission, and crash recovery.
 
-**Status: all 9 phases done.** Docker Compose, an architecture diagram,
-a real failure-recovery walkthrough, a runnable demo script, and the
+**Status: all 9 phases done, plus a live deployment and a dashboard
+built afterward.** Docker Compose, an architecture diagram, a real
+failure-recovery walkthrough, a runnable demo script, and the
 filled-in final acceptance checklist landed in Phase 9 - see
 [`docs/finalReview.md`](docs/finalReview.md) for exactly what was
-verified and what's genuinely not done (Docker itself was never run on
-this machine; no dashboard screenshots because no dashboard exists; no
-video, only a runnable script). 208 tests pass (90.77% coverage),
-confirmed on GitHub Actions' own runners, including a dependency
-vulnerability scan. The table at the bottom of this file tracks
-implementation status phase by phase and will be kept honest as work
-lands; nothing here should be read as "working" until its row says so.
+verified there and what wasn't (Docker itself was never run on this
+development machine; no video, only a runnable script). Since then: a
+static dashboard at `/ui` (see "Dashboard" below), a real bug the
+dashboard surfaced and fixed - requeuing a dead-lettered task twice
+could crash the worker on an attempt-numbering collision, see
+`src/pulsequeue/persistence/models.py`'s `totalAttemptCount` for the
+fix - and the live deployment linked above, itself how several real,
+now-documented deployment gotchas were actually found
+(`docs/deployment.md`). 214 tests pass (95% coverage), confirmed on
+GitHub Actions' own runners, including a dependency vulnerability scan.
+The table at the bottom of this file tracks implementation status
+phase by phase and will be kept honest as work lands; nothing here
+should be read as "working" until its row says so.
 
 ## Why this exists
 
@@ -277,12 +289,18 @@ processes (see `docs/architecture.md`); the alternative path in
 `docs/deployment.md` runs the worker separately on a free GCP VM
 ([`deploy/gcp/`](deploy/gcp/)) for anyone who'd rather have that and
 doesn't mind the card. The repository owner deployed this for real on
-Render, which is how two real gotchas got caught and documented rather
-than guessed: Supabase's direct connection is IPv6-only and doesn't
-resolve on Render's network (use the Session pooler instead), and
-`DATABASE_URL` needs the `postgresql+asyncpg://` scheme Supabase
-doesn't give you by default. The guide says what was actually checked
-and what wasn't, rather than claiming more than was verified.
+Render - it's **live** (see the link at the top of this file) - which
+is how several real gotchas got caught and fixed rather than guessed:
+Render doesn't interpret shell syntax (`&&`, quotes) in its
+`dockerCommand` field (use a real script file); Supabase's direct
+connection is IPv6-only and doesn't resolve on Render's network (use
+the Session pooler instead); `DATABASE_URL` needs the
+`postgresql+asyncpg://` scheme Supabase doesn't give you by default;
+and a password containing `@`/`%`/`$` needs percent-encoding, which in
+turn broke Alembic's `ConfigParser`-based config in a way this project
+now works around (`migrations/env.py`). The guide says what was
+actually checked and what wasn't, rather than claiming more than was
+verified.
 
 ## Demo
 
