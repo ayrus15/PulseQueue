@@ -74,6 +74,17 @@ free GCP VM" at the bottom.
    [`deploy/render/start.sh`](../deploy/render/start.sh)) - you don't
    need to run `alembic upgrade head` against Supabase yourself.
 
+   **`[password]` is a placeholder - don't paste it with the brackets
+   still on it.** And if your actual password contains any of
+   `@ : / ? # % & + = space`, percent-encode it first (that `@` is
+   exactly the character that normally separates the password from the
+   host in this URL format - unencoded, it breaks the parsing in a way
+   that looks like a DNS failure, not a credentials error):
+
+   ```bash
+   python3 -c "import urllib.parse; print(urllib.parse.quote('your-password', safe=''))"
+   ```
+
 ## 2. Redis on Upstash
 
 1. Create a database at [upstash.com](https://upstash.com) (free tier).

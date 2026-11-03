@@ -18,7 +18,17 @@ if config.config_file_name is not None:
 # placeholder, so local dev and CI don't need to keep two files in sync.
 databaseUrl = os.environ.get("DATABASE_URL")
 if databaseUrl:
-    config.set_main_option("sqlalchemy.url", databaseUrl)
+    # configparser.set() validates its value for %-interpolation syntax
+    # immediately, regardless of whether interpolation is ever actually
+    # triggered on read - a connection string with a percent-encoded
+    # password (e.g. a literal "@" or "$" escaped as %40/%24, needed for
+    # a real password containing either) raises
+    # "invalid interpolation syntax" here otherwise. "%%" is
+    # ConfigParser's own escape for a literal "%", and it's
+    # transparently un-escaped again on every subsequent get/get_section
+    # call below, so the URL alembic/SQLAlchemy actually see is
+    # unchanged.
+    config.set_main_option("sqlalchemy.url", databaseUrl.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
