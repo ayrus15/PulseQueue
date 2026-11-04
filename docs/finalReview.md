@@ -5,6 +5,16 @@ was actually verified - not a self-assessment restated from memory.
 Every row below points at the specific test, doc, or command that
 backs it.
 
+**Update, post-Phase-9:** a dashboard (`/ui`) was built after this
+review was written, a real bug it surfaced was fixed, and the project
+was deployed live - see README.md's status line for what's current.
+This file is kept as the original Phase 9 snapshot rather than
+rewritten, except for the one figure below that would otherwise read
+as simply wrong (the test count) and the one claim below that's now
+directly contradicted by the live site (no dashboard). For the current
+test count/coverage, always check README.md's top status line, not
+this file.
+
 | Item | Status | Evidence |
 |---|---|---|
 | New developer can run the project from the README | Yes (virtualenv path); Docker Compose path written and reviewed but not run end-to-end here (no Docker on this machine) | README.md "Setup"; `docs/decisions/0000-acceptance-criteria.md` |
@@ -16,7 +26,7 @@ backs it.
 | Dead letter tasks can be inspected | Yes | `GET /api/v1/dead-letters`, admin-token protected; live-demonstrated in `docs/demoScript.md` section 3 |
 | Worker failure recovery is tested | Yes | `tests/integration/test_lease_recovery.py`; live-demonstrated against a real worker process in `docs/operationsRunbook.md`'s "Failure recovery walkthrough" |
 | Task state transitions are enforced | Yes | `src/pulsequeue/domain/stateMachine.py`, exhaustively unit tested (every allowed pair, a sample of disallowed ones) |
-| Unit, integration, concurrency, and recovery tests exist | Yes | 208 tests total (`tests/unit/`, `tests/integration/`); concurrency: `test_task_listing.py::testCancelRacingWithClaimNeverCancelsAClaimedTask`, `test_idempotency.py`'s concurrent-submission test |
+| Unit, integration, concurrency, and recovery tests exist | Yes | 214 tests total as of this file's last edit (`tests/unit/`, `tests/integration/`) - check README.md's status line for the current count; concurrency: `test_task_listing.py::testCancelRacingWithClaimNeverCancelsAClaimedTask`, `test_idempotency.py`'s concurrent-submission test |
 | CI runs tests and quality checks | Yes | `.github/workflows/ci.yml`: ruff lint, ruff format check, mypy --strict, import check, pip-audit, full suite with coverage gate - see the badge at the top of README.md |
 | Metrics and structured logs are available | Yes | `GET /metrics`; `docs/operationsRunbook.md`'s "Reading `/metrics`" and "Reading structured logs" |
 | Benchmark methodology and results are documented | Yes | `benchmarks/README.md`, `benchmarks/results/` - 2 real scenarios, 1 vs. 4 worker processes |
@@ -33,13 +43,24 @@ script, limitations/future work, this recruiter-perspective pass) is
 complete. Explicitly **not** done, and not claimed to be:
 
 - `docker compose up` has never actually been run on this machine
-  (Docker isn't installed) - see README's "Current limitations".
-- No dashboard screenshots, because no Grafana/dashboard setup exists
-  to screenshot (PROJECT_PLAN.md says to add these "only if the
-  dashboards exist").
+  (Docker isn't installed) - see README's "Current limitations". The
+  same `Dockerfile` *has* since been built and run for real by Render
+  in production, which is a different thing from `docker compose up`
+  locally but worth noting here rather than leaving the stronger "never
+  run" claim standing unqualified.
+- No Grafana/Prometheus-dashboard screenshots, because no such setup
+  exists to screenshot (PROJECT_PLAN.md says to add these "only if the
+  dashboards exist") - still true. This is different from the
+  hand-built `/ui` dashboard added after this review, which is real and
+  live; the README's "Future work" item about "a real dashboard" at the
+  time this was written meant a metrics/observability dashboard
+  (Grafana or similar) over `/metrics`, not a task-management UI, and
+  has been reworded there to say so now that one exists.
 - No recorded video demo exists; `docs/demoScript.md` is a runnable
-  substitute, not a video.
-- Everything listed in README's "Future work" section (per-client
+  substitute, not a video. The live deployment (README's status line)
+  is arguably a stronger substitute than either at this point.
+- Everything else listed in README's "Future work" section (per-client
   auth, multi-host worker scaling, a non-fixed-window rate limiter,
   automatic API-layer retry on a mid-request DB failure, a real
-  dashboard) is deliberately out of scope for this project's 9 phases.
+  metrics dashboard) is deliberately out of scope for this project's
+  9 phases.

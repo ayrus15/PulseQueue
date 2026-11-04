@@ -25,11 +25,13 @@ could crash the worker on an attempt-numbering collision, see
 `src/pulsequeue/persistence/models.py`'s `totalAttemptCount` for the
 fix - and the live deployment linked above, itself how several real,
 now-documented deployment gotchas were actually found
-(`docs/deployment.md`). 214 tests pass (95% coverage), confirmed on
-GitHub Actions' own runners, including a dependency vulnerability scan.
-The table at the bottom of this file tracks implementation status
-phase by phase and will be kept honest as work lands; nothing here
-should be read as "working" until its row says so.
+(`docs/deployment.md`). **214 tests pass (94.65% coverage)** - this is
+the current, authoritative figure; every other count in this file is
+intentionally historical, labeled with the phase it was measured at -
+confirmed on GitHub Actions' own runners, including a dependency
+vulnerability scan. The table at the bottom of this file tracks
+implementation status phase by phase and will be kept honest as work
+lands; nothing here should be read as "working" until its row says so.
 
 ## Why this exists
 
@@ -189,7 +191,7 @@ pytest --cov=pulsequeue --cov-report=term-missing   # with coverage, like CI
 Integration tests need a real PostgreSQL database and **skip cleanly**
 (not fail) if one isn't reachable, printing the exact command to set one
 up. Verified against a real local PostgreSQL 18 + Redis 8, and
-confirmed again on GitHub's own runners via CI (208 tests, 90.77%
+confirmed again on GitHub's own runners via CI (214 tests, 94.65%
 coverage, 0 failures - unit, API integration, task claiming/concurrency
 (including a real cancel-vs-claim race and a real concurrent-duplicate-
 idempotency-submission test), worker end-to-end, lease recovery,
@@ -212,7 +214,7 @@ pytest
 push to `main` and every pull request: `ruff check`, `ruff format
 --check`, `mypy --strict`, an import sanity check, then the full test
 suite with coverage against real `postgres:18`/`redis:8` service
-containers (`--cov-fail-under=85`, comfortably below the 90.77% this
+containers (`--cov-fail-under=85`, comfortably below the 94.65% this
 suite actually measures), and now also a `pip-audit` dependency
 vulnerability scan (Phase 8). Coverage XML is uploaded as a build
 artifact. See the badge at the top of this file for current status.
@@ -350,11 +352,12 @@ deliberately left out of this project's 9 phases:
   PostgreSQL connection failure mid-request (see
   `docs/operationsRunbook.md`'s fault-scenario table) - today the
   client sees a `500` and retries itself.
-- **A real Grafana/dashboard setup.** `/metrics` is real Prometheus
-  output (see "Monitoring" above); nothing renders it. No dashboard
-  screenshots are included in this README because no dashboard exists
-  to screenshot - PROJECT_PLAN.md's Phase 9 task list explicitly says
-  to add them "only if the dashboards exist."
+- **A real Grafana/Prometheus observability dashboard.** `/metrics` is
+  real Prometheus output (see "Monitoring" above); nothing renders it
+  as graphs. Not to be confused with the task-management dashboard at
+  `/ui` (see "Dashboard" above), which is real, built, and live - this
+  item is specifically about metrics visualization/alerting, which
+  doesn't exist.
 
 ## Current limitations
 
@@ -397,6 +400,13 @@ deliberately left out of this project's 9 phases:
 
 ## Implementation status
 
+Test/coverage figures in this table are **point-in-time** - exactly
+what that phase measured the day it was completed, not updated
+retroactively as later phases added more tests. For the current count,
+see the status line at the top of this file (214 tests, 94.65%
+coverage) - that is the only number meant to answer "how many tests
+does this have right now."
+
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Architecture, ADRs, repo/environment setup | Done |
@@ -405,9 +415,9 @@ deliberately left out of this project's 9 phases:
 | 3 | Idempotency, retries, leases, dead-letter handling, recovery | Done |
 | 4 | Pagination, filtering, cancellation, API quality | Done |
 | 5 | Comprehensive tests and GitHub Actions CI | Done — confirmed green on GitHub's own runners (badge above) |
-| 6 | Health checks, metrics, structured logs, runbook | Done — 198/198 tests, 91% coverage; a live smoke test caught and fixed a real negative-duration bug in the queue-wait histogram before it shipped |
+| 6 | Health checks, metrics, structured logs, runbook | Done — 198/198 tests at the time, 91% coverage; a live smoke test caught and fixed a real negative-duration bug in the queue-wait histogram before it shipped |
 | 7 | Load testing, profiling, benchmark report | Done — 2 real scenarios (1 vs. 4 workers), bottleneck conclusion in `benchmarks/results/` |
-| 8 | Security hardening and threat model | Done — see `docs/threatModel.md`'s "Phase 8 findings"; 208/208 tests, 91% coverage |
+| 8 | Security hardening and threat model | Done — see `docs/threatModel.md`'s "Phase 8 findings"; 208/208 tests at the time, 91% coverage |
 | 9 | Packaging, documentation, demo, final review | Done — see [`docs/finalReview.md`](docs/finalReview.md) for the filled-in acceptance checklist and what's genuinely not done |
 
 See [`PROJECT_PLAN.md`](PROJECT_PLAN.md) for the full specification and
