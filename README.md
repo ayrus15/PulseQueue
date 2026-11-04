@@ -319,16 +319,23 @@ those does: a worker crashing mid-task.
 ## Benchmarks
 
 [`benchmarks/`](benchmarks/README.md) holds the Locust workload
-(`locustfile.py`) and two real, run results: 1 worker process vs. 4,
-same load, same machine. Headline finding: going to 4 workers roughly
-halved median latency but only grew throughput ~20% and made tail
-latency *worse* - not what naive "more workers = proportionally more
-throughput" would predict. The best-supported read of the numbers
+(`locustfile.py`) and three real, run results. Two compare PulseQueue
+worker *processes* (1 vs. 4, same load, same machine): going to 4
+workers roughly halved median latency but only grew throughput ~20%
+and made tail latency *worse* - not what naive "more workers =
+proportionally more throughput" would predict. The best-supported read
 (execution time stays flat either way; see
 [`benchmarks/results/scenario2-4workers-c1.md`](benchmarks/results/scenario2-4workers-c1.md)
 for the full reasoning) is that this single shared, resource-constrained
 machine - not anything in PulseQueue's own design - was the limiting
-factor in this test. Not claimed to represent any other hardware.
+factor in that test. A third, different-axis result compares
+**uvicorn** process count instead (1 vs. 2, API server processes, not
+PulseQueue workers) at 20 concurrent users: a single uvicorn process
+completed essentially nothing in 60 seconds (5 requests, each queued
+for ~59s before even starting), while two processes completed 3,389
+requests with zero failures - see
+[`benchmarks/results/scenario3-uvicorn-workers.md`](benchmarks/results/scenario3-uvicorn-workers.md).
+None of these are claimed to represent any other hardware.
 
 ## Future work
 

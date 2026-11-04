@@ -1,11 +1,16 @@
 # Benchmarks
 
-**Status: Phase 7 done.** Two scenarios run (1 worker vs. 4 worker
-processes, otherwise identical), compared, and written up with a
-bottleneck conclusion in `results/scenario2-4workers-c1.md`. This file
-is the methodology and exact reproduction commands; `locustfile.py` is
-the workload; `results/` holds the dated, environment-specific result
-reports and their raw Locust CSVs.
+**Status: Phase 7 done**, plus a third scenario added afterward. The
+original two scenarios compare 1 vs. 4 PulseQueue worker *processes*,
+written up with a bottleneck conclusion in
+`results/scenario2-4workers-c1.md`. A third, added later, compares 1
+vs. 2 **uvicorn** processes instead (a different axis entirely - the
+API server's own process count, not PulseQueue's background workers)
+and found a much larger effect: see
+`results/scenario3-uvicorn-workers.md`. This file is the methodology
+and exact reproduction commands; `locustfile.py` is the workload;
+`results/` holds the dated, environment-specific result reports and
+their raw Locust CSVs.
 
 ## What this measures
 
